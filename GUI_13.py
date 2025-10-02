@@ -97,6 +97,28 @@ zoom_options = ["40x", "200x"]
 zoom_dropdown = ctk.CTkOptionMenu(sidebar, variable=zoom_var, values=zoom_options, command=lambda _: update_measurement_type())
 zoom_dropdown.pack(pady=(0,20))
 
+# Status Label
+status_label = ctk.CTkLabel(sidebar, text="Current Mode: Rectangle Measurement (40x)", 
+                           wraplength=200, justify="center", font=("Arial", 12))
+status_label.pack(pady=(10,20))
+
+def update_status_label(*args):
+    mode = mode_var.get()
+    zoom = zoom_var.get()
+    if mode == "defect":
+        status_text = "Current Mode:\nDefect Detection"
+    else:  # measurement mode
+        measure_type = "Rectangle" if zoom == "40x" else "Lens"
+        status_text = f"Current Mode:\n{measure_type} Measurement ({zoom})"
+    status_label.configure(text=status_text)
+
+# Add trace to both variables to update status
+mode_var.trace_add("write", update_status_label)
+zoom_var.trace_add("write", update_status_label)
+
+# Initialize status label
+update_status_label()
+
 main_frame = ctk.CTkFrame(app)
 main_frame.pack(side="left", fill="both", expand=True, padx=20, pady=20)
 
