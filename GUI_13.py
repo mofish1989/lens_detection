@@ -9,7 +9,8 @@ import datetime  # For timestamp saving
 
 # === Load YOLO Models ===
 model_lens = YOLO("200x_lens.pt")       # For lens/circles
-model_rectangle = YOLO("40x_rectt.pt")  # For rectangles (in/out)
+model_rectangle = YOLO("outer_rect.pt")  # For rectangles (in/out)
+# model_rectangle = YOLO("40x_rectt.pt")  # For rectangles (in/out)
 model_defects = YOLO("defects.pt")      # For defect detection
 
 # === Constants ===
@@ -234,42 +235,363 @@ def run_detection():
             if len(circles) > 1:
                 total_dist_mm = abs(circles[-1][0] - circles[0][0]) / pixel_scale
                 results_text.append(f"Distance Lens 1 to Lens {len(circles)}: {total_dist_mm:.3f}mm")
-
+        
+        # --- Rectangle Measurement Logic (Segmentation) ---
         elif measure_type == "rectangle":
-            res_rect = model_rectangle(uploaded_image)[0]
+            # Run detection and get results with confidence threshold
+            res_rect = model_rectangle(uploaded_image, conf=0.7)[0]
+            
+            # Debug information
+            print(f"Model output available fields: {dir(res_rect)}")
+            if hasattr(res_rect, 'masks') and res_rect.masks is not None:
+                print(f"Number of masks: {len(res_rect.masks.data)}")
+            if hasattr(res_rect, 'boxes'):
+                print(f"Number of boxes: {len(res_rect.boxes)}")
+                print(f"Classes detected: {res_rect.boxes.cls.cpu().numpy()}")
+                print(f"Available class names: {res_rect.names}")
+            
+            # Lists to store detected rectangles
             out_rects = []
-            in_rects = []
-            for box, cls in zip(res_rect.boxes.xyxy.cpu().numpy(), res_rect.boxes.cls.cpu().numpy()):
-                x1, y1, x2, y2 = map(int, box)
-                label = res_rect.names[int(cls)].lower()
-                w, h = x2-x1, y2-y1
-                length_mm, breadth_mm = w/pixel_scale, h/pixel_scale
-                if label=="out": out_rects.append((x1,y1,x2,y2,length_mm,breadth_mm))
-                elif label=="in": in_rects.append((x1,y1,x2,y2,length_mm,breadth_mm))
 
+                # Process masks if available
+            if hasattr(res_rect, 'masks') and res_rect.masks is not None:
+                # Get image dimensions
+                img_height, img_width = uploaded_image.shape[:2]
+                print(f"\nImage dimensions: {img_width}x{img_height}")
+                
+                # Create a combined mask at the image resolution
+                combined_mask = np.zeros((img_height, img_width), dtype=np.uint8)
+                
+                # Process each mask and class from the segmentation results
+                for i in range(len(res_rect.masks.data)):
+                    # Get mask and ensure it's in the correct format
+                    mask = res_rect.masks.data[i].cpu().numpy()
+                    
+                    # Print original mask dimensions
+                    mask_height, mask_width = mask.shape
+                    print(f"Original mask dimensions: {mask_width}x{mask_height}")
+                    
+                    # Resize mask to match image dimensions
+                    if mask_height != img_height or mask_width != img_width:
+                        print(f"Resizing mask to match image dimensions")
+                        mask = cv2.resize(mask, (img_width, img_height))                    # Debug: Print mask statistics and coordinates
+                    print(f"\nMask {i} statistics:")
+                    print(f"  Shape: {mask.shape}")
+                    print(f"  Unique values: {np.unique(mask)}")
+                    print(f"  Mean value: {mask.mean():.3f}")
+                    
+                    # Find non-zero coordinates in the mask
+                    non_zero_coords = np.nonzero(mask)
+                    if len(non_zero_coords[0]) > 0:
+                        min_y, max_y = non_zero_coords[0].min(), non_zero_coords[0].max()
+                        min_x, max_x = non_zero_coords[1].min(), non_zero_coords[1].max()
+                        print(f"  Mask bounds: x=[{min_x}, {max_x}], y=[{min_y}, {max_y}]")
+                        print(f"  Mask size: width={max_x - min_x}, height={max_y - min_y}")
+                    
+                    # Get original image dimensions
+                    img_height, img_width = uploaded_image.shape[:2]
+                    mask_height, mask_width = mask.shape[:2]
+                    
+                    # Print dimensions for debugging
+                    print(f"\nImage dimensions: {img_width}x{img_height}")
+                    print(f"Mask dimensions: {mask_width}x{mask_height}")
+                    
+                    # Resize mask to match image dimensions if different
+                    if mask_height != img_height or mask_width != img_width:
+                        print(f"Resizing mask to match image dimensions")
+                        mask = cv2.resize(mask, (img_width, img_height))
+                    
+                    # Convert mask to proper binary image format with optimized threshold
+                    # Scale the kernel sizes based on image dimensions
+                    scale_factor = min(img_width, img_height) / 800  # baseline for scaling
+                    
+                    # Convert float mask to binary
+                    mask = (mask > 0.3).astype("uint8") * 255
+                    
+                    # Scale kernel sizes based on image resolution
+                    small_size = max(3, int(3 * scale_factor))
+                    large_size = max(5, int(5 * scale_factor))
+                    
+                    # Ensure kernel sizes are odd
+                    small_size = small_size + 1 if small_size % 2 == 0 else small_size
+                    large_size = large_size + 1 if large_size % 2 == 0 else large_size
+                    
+                    kernel_small = np.ones((small_size, small_size), np.uint8)
+                    kernel_large = np.ones((large_size, large_size), np.uint8)
+                    
+                    print(f"Using kernel sizes: small={small_size}x{small_size}, large={large_size}x{large_size}")
+                    
+                    # First apply closing to fill small gaps and smooth edges
+                    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel_small, iterations=1)
+                    
+                    # Then dilate slightly to ensure connectivity
+                    mask = cv2.dilate(mask, kernel_small, iterations=1)
+                    
+                    # Apply opening to remove small noise
+                    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel_large, iterations=1)
+                    
+                    # Finally, erode slightly to get more precise boundaries
+                    mask = cv2.erode(mask, kernel_small, iterations=1)
+                    
+                    # Save intermediate mask for debugging
+                    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                    cv2.imwrite(os.path.join(HISTORY_DIR, f"intermediate_mask_{i}_{timestamp}.png"), mask)
+                    
+                    # Update combined mask
+                    combined_mask = cv2.bitwise_or(combined_mask, mask)
+                    
+                    # Apply threshold to ensure binary mask
+                    _, mask_binary = cv2.threshold(mask, 127, 255, cv2.THRESH_BINARY)
+                    
+                    # Find contours in the binary mask
+                    contours, hierarchy = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                    
+                    if not contours:
+                        continue
+                    
+                    # Sort contours by area in descending order
+                    contours = sorted(contours, key=cv2.contourArea, reverse=True)
+                    
+                    # Process the largest contour
+                    contour = contours[0]
+                    contour_area = cv2.contourArea(contour)
+                    
+                    # Use a slightly larger epsilon for stable rectangle detection
+                    epsilon = 0.005 * cv2.arcLength(contour, True)
+                    approx_contour = cv2.approxPolyDP(contour, epsilon, True)
+                    
+                    # If the approximated contour has too few points, use a smaller epsilon
+                    if len(approx_contour) < 10:
+                        epsilon = 0.002 * cv2.arcLength(contour, True)
+                        approx_contour = cv2.approxPolyDP(contour, epsilon, True)
+                    
+                    # Debug visualization of contours
+                    debug_vis = np.zeros_like(mask)
+                    cv2.drawContours(debug_vis, [contour], -1, 128, 2)  # Original in gray
+                    cv2.drawContours(debug_vis, [approx_contour], -1, 255, 2)  # Approximated in white
+                    
+                    # Print number of vertices for debugging
+                    print(f"  Original contour vertices: {len(contour)}")
+                    print(f"  Approximated contour vertices: {len(approx_contour)}")
+                    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                    cv2.imwrite(os.path.join(HISTORY_DIR, f"debug_contour_{i}_{timestamp}.png"), debug_vis)
+                    
+                    # Get the minimum area rectangle from both contours and pick the better one
+                    rect_orig = cv2.minAreaRect(contour)
+                    rect_approx = cv2.minAreaRect(approx_contour)
+                    
+                    # Function to normalize rectangle measurements
+                    def normalize_rect(rect):
+                        (cx, cy), (w, h), angle = rect
+                        if angle < -45:
+                            angle += 90
+                            w, h = h, w
+                        return (cx, cy), (w, h), angle
+                    
+                    # Function to score rectangle quality
+                    def score_rect(rect):
+                        _, (w, h), _ = normalize_rect(rect)
+                        w_mm, h_mm = w/pixel_scale, h/pixel_scale
+                        length_mm, breadth_mm = max(w_mm, h_mm), min(w_mm, h_mm)
+                        length_error = abs(length_mm - OUT_RECT_LENGTH)
+                        breadth_error = abs(breadth_mm - OUT_RECT_BREADTH)
+                        return length_error + breadth_error
+                    
+                    # Choose the better rectangle based on measurement error
+                    rect = rect_orig if score_rect(rect_orig) < score_rect(rect_approx) else rect_approx
+                    (cx, cy), (w, h), angle = normalize_rect(rect)
+                    
+                    # Print debug information
+                    print(f"Contour {i}:")
+                    print(f"  Area: {contour_area}")
+                    
+                    # Get contour bounds
+                    x_coords = contour[:,:,0]
+                    y_coords = contour[:,:,1]
+                    contour_min_x = x_coords.min()
+                    contour_max_x = x_coords.max()
+                    contour_min_y = y_coords.min()
+                    contour_max_y = y_coords.max()
+                    print(f"  Contour bounds: x=[{contour_min_x:.1f}, {contour_max_x:.1f}], y=[{contour_min_y:.1f}, {contour_max_y:.1f}]")
+                    print(f"  Contour size: width={contour_max_x - contour_min_x:.1f}, height={contour_max_y - contour_min_y:.1f}")
+                    
+                    # Get approximated contour bounds
+                    approx_x_coords = approx_contour[:,:,0]
+                    approx_y_coords = approx_contour[:,:,1]
+                    approx_min_x = approx_x_coords.min()
+                    approx_max_x = approx_x_coords.max()
+                    approx_min_y = approx_y_coords.min()
+                    approx_max_y = approx_y_coords.max()
+                    print(f"  Approximated contour bounds: x=[{approx_min_x:.1f}, {approx_max_x:.1f}], y=[{approx_min_y:.1f}, {approx_max_y:.1f}]")
+                    print(f"  Approximated contour size: width={approx_max_x - approx_min_x:.1f}, height={approx_max_y - approx_min_y:.1f}")
+                    
+                    # Get minimum area rectangle info
+                    print(f"  Min area rectangle: center=({cx:.1f}, {cy:.1f}), width={w:.1f}, height={h:.1f}, angle={angle:.1f}")
+                    
+                    # Get and print corner points of the rectangle
+                    box = cv2.boxPoints(rect)
+                    print(f"  Rectangle corners:")
+                    for j, corner in enumerate(box):
+                        print(f"    Corner {j}: ({corner[0]:.1f}, {corner[1]:.1f})")
+                    
+                    # Get the pixel scale from the constants
+                    pixel_scale = PIXEL_SCALES.get(zoom_var.get(), 120)  # 120 pixels/mm for 40x
+                    
+                    # Convert image dimensions back to original scale if they were resized
+                    if mask_height != img_height or mask_width != img_width:
+                        scale_factor_h = img_height / mask_height
+                        scale_factor_w = img_width / mask_width
+                        scale_factor = (scale_factor_h + scale_factor_w) / 2
+                        w = w * scale_factor
+                        h = h * scale_factor
+                    
+                    # Always use the actual width/height regardless of rotation
+                    w_actual = max(w, h)  # Longer side
+                    h_actual = min(w, h)  # Shorter side
+                    length_mm = w_actual / pixel_scale
+                    breadth_mm = h_actual / pixel_scale
+                    
+                    print(f"\nScaling details:")
+                    print(f"  Pixel scale: {pixel_scale} pixels/mm")
+                    print(f"  Raw dimensions: {w:.1f} x {h:.1f} pixels")
+                    print(f"  Actual dimensions: {w_actual:.1f} x {h_actual:.1f} pixels")
+                    print(f"  Converted to mm: {length_mm:.3f} x {breadth_mm:.3f} mm")
+                    
+                    print(f"  Measurements: {length_mm:.3f}mm x {breadth_mm:.3f}mm")
+                    
+                    # Get rectangle corners for drawing
+                    box = cv2.boxPoints(rect)
+                    box = np.int32(box)
+                    
+                    # Get the minimum area rectangle and measurements
+                    rect = cv2.minAreaRect(contour)
+                    (cx, cy), (w, h), angle = rect
+                    box = cv2.boxPoints(rect)
+                    box = np.int32(box)
+
+                    # Normalize dimensions and convert to mm
+                    if angle < -45:
+                        angle += 90
+                        w, h = h, w
+                    length_mm = max(w, h) / pixel_scale
+                    breadth_mm = min(w, h) / pixel_scale
+
+                    # Check if measurements are within tolerance
+                    in_tol = (abs(length_mm - OUT_RECT_LENGTH) <= RECT_TOL and 
+                             abs(breadth_mm - OUT_RECT_BREADTH) <= RECT_TOL)
+
+                    # Draw the contour and rectangle
+                    line_thickness = max(2, min(img_width, img_height) // 300)
+                    cv2.drawContours(annotated, [contour], -1, (255, 0, 0), line_thickness)  # Contour in blue
+                    color = (0, 255, 0) if in_tol else (0, 0, 255)  # Green if in tolerance, red if not
+                    cv2.drawContours(annotated, [box], 0, color, line_thickness)
+
+                    # Add measurement text
+                    text = f"Out Rect: {length_mm:.3f}mm x {breadth_mm:.3f}mm"
+                    font_scale = min(img_width, img_height) / 2000
+                    text_x = int(min(box[:, 0]))  # Leftmost x coordinate
+                    text_y = int(min(box[:, 1])) - 20  # Above the top of the rectangle
+                    cv2.putText(annotated, text, (text_x, text_y),
+                              cv2.FONT_HERSHEY_SIMPLEX, font_scale, (0, 0, 0), 2)
+
+                    # Add to results text
+                    status = 'OK' if in_tol else 'Out of Tolerance'
+                    results_text.append(f"Out Rect: {length_mm:.3f} x {breadth_mm:.3f}mm {status}")
+
+                    # Save debug visualization
+                    debug_vis = np.zeros((img_height, img_width), dtype=np.uint8)
+                    cv2.drawContours(debug_vis, [contour], -1, 128, line_thickness)  # Contour in gray
+                    cv2.drawContours(debug_vis, [box], 0, 255, line_thickness)  # Rectangle in white
+                    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                    cv2.imwrite(os.path.join(HISTORY_DIR, f"measurement_{i}_{timestamp}.png"), debug_vis)
+
+                    # Print measurement details for debugging
+                    print(f"\nMeasurement details:")
+                    print(f"  Length: {length_mm:.3f}mm (target: {OUT_RECT_LENGTH:.3f}mm)")
+                    print(f"  Breadth: {breadth_mm:.3f}mm (target: {OUT_RECT_BREADTH:.3f}mm)")
+                    print(f"  Status: {status}")                # Save the combined mask for debugging
+                timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                cv2.imwrite(os.path.join(HISTORY_DIR, f"combined_mask_{timestamp}.png"), combined_mask)
+            
+            # Function to find best matching rectangle
             def choose_best(rects, target_length, target_breadth):
-                if not rects: return None
-                def dist(r): return abs(r[4]-target_length)+abs(r[5]-target_breadth)
+                if not rects:
+                    return None
+                def dist(r): 
+                    return abs(r[1] - target_length) + abs(r[2] - target_breadth)
                 return sorted(rects, key=dist)[0]
+            
+            # No need for choose_best function anymore as we're selecting during processing
+            # best_rect will be already set if we found a valid rectangle during mask processing
 
-            best_out = choose_best(out_rects, OUT_RECT_LENGTH, OUT_RECT_BREADTH)
-            best_in = choose_best(in_rects, IN_RECT_LENGTH, IN_RECT_BREADTH)
+        # --- Rectangle Measurement Logic (Object Detection) ---
+        # elif measure_type == "rectangle":
+        #     res_rect = model_rectangle(uploaded_image)[0]
+        #     out_rects = []
+        #     in_rects = []
+        #     for box, cls in zip(res_rect.boxes.xyxy.cpu().numpy(), res_rect.boxes.cls.cpu().numpy()):
+        #         x1, y1, x2, y2 = map(int, box)
+        #         label = res_rect.names[int(cls)].lower()
+        #         w, h = x2-x1, y2-y1
+        #         length_mm, breadth_mm = w/pixel_scale, h/pixel_scale
+        #         if label=="out": out_rects.append((x1,y1,x2,y2,length_mm,breadth_mm))
+        #         elif label=="in": in_rects.append((x1,y1,x2,y2,length_mm,breadth_mm))
 
-            if best_out:
-                x1,y1,x2,y2,length_mm,breadth_mm=best_out
-                in_tol = abs(length_mm-OUT_RECT_LENGTH)<=RECT_TOL and abs(breadth_mm-OUT_RECT_BREADTH)<=RECT_TOL
-                color = (0,255,0) if in_tol else (0,0,255)
-                cv2.rectangle(annotated,(x1,y1),(x2,y2),color,2)
-                cv2.putText(annotated,f"Out Rect: {length_mm:.3f}mm x {breadth_mm:.3f}mm",(x1,y1-10),cv2.FONT_HERSHEY_SIMPLEX,0.6,(0,0,0),2)
-                results_text.append(f"Out Rect: {length_mm:.3f} x {breadth_mm:.3f} {'OK' if in_tol else 'Out of Tolerance'}")
+        #     def choose_best(rects, target_length, target_breadth):
+        #         if not rects: return None
+        #         def dist(r): return abs(r[4]-target_length)+abs(r[5]-target_breadth)
+        #         return sorted(rects, key=dist)[0]
 
-            if best_in:
-                x1,y1,x2,y2,length_mm,breadth_mm=best_in
-                in_tol = abs(length_mm-IN_RECT_LENGTH)<=RECT_TOL and abs(breadth_mm-IN_RECT_BREADTH)<=RECT_TOL
-                color = (0,255,0) if in_tol else (0,0,255)
-                cv2.rectangle(annotated,(x1,y1),(x2,y2),color,2)
-                cv2.putText(annotated,f"In Rect: {length_mm:.3f}mm x {breadth_mm:.3f}mm",(x1,y1-10),cv2.FONT_HERSHEY_SIMPLEX,0.6,(0,0,0),2)
-                results_text.append(f"In Rect: {length_mm:.3f} x {breadth_mm:.3f} {'OK' if in_tol else 'Out of Tolerance'}")
+        #     best_out = choose_best(out_rects, OUT_RECT_LENGTH, OUT_RECT_BREADTH)
+        #     best_in = choose_best(in_rects, IN_RECT_LENGTH, IN_RECT_BREADTH)
+
+        #     if best_out:
+        #         x1,y1,x2,y2,length_mm,breadth_mm=best_out
+        #         in_tol = abs(length_mm-OUT_RECT_LENGTH)<=RECT_TOL and abs(breadth_mm-OUT_RECT_BREADTH)<=RECT_TOL
+        #         color = (0,255,0) if in_tol else (0,0,255)
+        #         cv2.rectangle(annotated,(x1,y1),(x2,y2),color,2)
+        #         cv2.putText(annotated,f"Out Rect: {length_mm:.3f}mm x {breadth_mm:.3f}mm",(x1,y1-10),cv2.FONT_HERSHEY_SIMPLEX,0.6,(0,0,0),2)
+        #         results_text.append(f"Out Rect: {length_mm:.3f} x {breadth_mm:.3f} {'OK' if in_tol else 'Out of Tolerance'}")
+
+        #     if best_in:
+        #         x1,y1,x2,y2,length_mm,breadth_mm=best_in
+        #         in_tol = abs(length_mm-IN_RECT_LENGTH)<=RECT_TOL and abs(breadth_mm-IN_RECT_BREADTH)<=RECT_TOL
+        #         color = (0,255,0) if in_tol else (0,0,255)
+        #         cv2.rectangle(annotated,(x1,y1),(x2,y2),color,2)
+        #         cv2.putText(annotated,f"In Rect: {length_mm:.3f}mm x {breadth_mm:.3f}mm",(x1,y1-10),cv2.FONT_HERSHEY_SIMPLEX,0.6,(0,0,0),2)
+        #         results_text.append(f"In Rect: {length_mm:.3f} x {breadth_mm:.3f} {'OK' if in_tol else 'Out of Tolerance'}")
+
+        #     # Function to choose best rectangle
+        #     def choose_best(rects, target_length, target_breadth):
+        #         if not rects:
+        #             return None
+        #         def dist(r): return abs(r[1] - target_length) + abs(r[2] - target_breadth)
+        #         return sorted(rects, key=dist)[0]
+
+
+        #     # Pick best candidate
+        #     best_out = choose_best(out_rects, OUT_RECT_LENGTH, OUT_RECT_BREADTH)
+        #     best_in = choose_best(in_rects, IN_RECT_LENGTH, IN_RECT_BREADTH)
+
+
+        #     # Check tolerance and annotate
+        #     if best_out:
+        #         box, length_mm, breadth_mm = best_out
+        #         in_tol = abs(length_mm - OUT_RECT_LENGTH) <= RECT_TOL and abs(breadth_mm - OUT_RECT_BREADTH) <= RECT_TOL
+        #         color = (0, 255, 0) if in_tol else (0, 0, 255)
+        #         cv2.drawContours(annotated, [box], 0, color, 2)
+        #         cv2.putText(annotated, f"Out Rect: {length_mm:.3f}mm x {breadth_mm:.3f}mm",
+        #                     (box[0][0], box[0][1]-10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 2)
+        #         results_text.append(f"Out Rect: {length_mm:.3f} x {breadth_mm:.3f} {'OK' if in_tol else 'Out of Tolerance'}")
+
+        #     if best_in:
+        #         box, length_mm, breadth_mm = best_in
+        #         in_tol = abs(length_mm - IN_RECT_LENGTH) <= RECT_TOL and abs(breadth_mm - IN_RECT_BREADTH) <= RECT_TOL
+        #         color = (0, 255, 0) if in_tol else (0, 0, 255)
+        #         cv2.drawContours(annotated, [box], 0, color, 2)
+        #         cv2.putText(annotated, f"In Rect: {length_mm:.3f}mm x {breadth_mm:.3f}mm",
+        #                     (box[0][0], box[0][1]-10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 2)
+        #         results_text.append(f"In Rect: {length_mm:.3f} x {breadth_mm:.3f} {'OK' if in_tol else 'Out of Tolerance'}")
 
     # --- Defect Logic ---
     elif mode=="defect":
