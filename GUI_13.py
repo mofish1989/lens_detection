@@ -54,9 +54,6 @@ pan_start_y = 0
 annotated_canvas = None
 canvas_img_id = None
 
-upload_tab_measure_frame = None
-upload_tab_measure_buttons = {}
-upload_tab_detect_defects_btn = None
 upload_tab_upload_btn = None
 upload_tab_run_detection_btn = None
 preview_img_label = None
@@ -92,12 +89,12 @@ if logo2_img:
 
 mode_var = ctk.StringVar(value="measurement")
 ctk.CTkLabel(sidebar, text="Mode:").pack(pady=(0,5))
-mode_dropdown = ctk.CTkOptionMenu(sidebar, variable=mode_var, values=["measurement", "defect"], command=lambda _: update_measure_buttons())
+mode_dropdown = ctk.CTkOptionMenu(sidebar, variable=mode_var, values=["measurement", "defect"])
 mode_dropdown.pack(pady=(0,20))
 
 zoom_var = ctk.StringVar(value="40x")
 zoom_options = ["40x", "200x"]
-zoom_dropdown = ctk.CTkOptionMenu(sidebar, variable=zoom_var, values=zoom_options)
+zoom_dropdown = ctk.CTkOptionMenu(sidebar, variable=zoom_var, values=zoom_options, command=lambda _: update_measurement_type())
 zoom_dropdown.pack(pady=(0,20))
 
 main_frame = ctk.CTkFrame(app)
@@ -110,52 +107,19 @@ upload_btn.pack(pady=(10,20))
 preview_label = ctk.CTkLabel(main_frame, text="No image uploaded", width=1000, height=600, fg_color="gray90", corner_radius=10)
 preview_label.pack(pady=(10,20))
 
-measure_frame = ctk.CTkFrame(main_frame)
-measure_frame.pack(pady=(0,15))
-measure_buttons = {}
-
-def set_measurement(opt):
+# Auto-update measurement type based on zoom level
+def update_measurement_type():
     global measure_type
-    measure_type = opt
-
-def update_measure_buttons():
-    if mode_var.get() == "measurement":
-        measure_frame.pack(pady=(0,15))
-        for key, btn in measure_buttons.items():
-            btn.pack_forget()
-        current_zoom = zoom_var.get()
-        if current_zoom == "40x" and "rectangle" in measure_buttons:
-            measure_buttons["rectangle"].pack(side="left", padx=5)
-            set_measurement("rectangle")
-        elif current_zoom == "200x" and "lens" in measure_buttons:
-            measure_buttons["lens"].pack(side="left", padx=5)
-            set_measurement("lens")
+    if zoom_var.get() == "40x":
+        measure_type = "rectangle"
     else:
-        measure_frame.pack_forget()
-
-measure_buttons["rectangle"] = ctk.CTkButton(measure_frame, text="Measure Rectangle", command=lambda: set_measurement("rectangle"))
-measure_buttons["lens"] = ctk.CTkButton(measure_frame, text="Measure Lens", command=lambda: set_measurement("lens"))
-
-update_measure_buttons()
-
-detect_defects_btn = ctk.CTkButton(main_frame, text="Detect Defects", command=lambda: run_detection())
-defects_btn_visible = False
-
-def update_defects_button():
-    global defects_btn_visible
-    if mode_var.get() == "defect":
-        detect_defects_btn.pack(pady=(0,15))
-        defects_btn_visible = True
-    else:
-        detect_defects_btn.pack_forget()
-        defects_btn_visible = False
+        measure_type = "lens"
 
 run_detection_btn = ctk.CTkButton(main_frame, text="Run Detection", command=lambda: run_detection())
 run_detection_btn.pack(pady=(0,15))
 run_detection_btn.configure(state="disabled")
 
-mode_var.trace_add("write", lambda *args: (update_measure_buttons(), update_defects_button(), update_upload_tab_buttons_visibility()))
-zoom_var.trace_add("write", lambda *args: update_measure_buttons())
+zoom_var.trace_add("write", lambda *args: update_measurement_type())
 
 # === Upload & Preview Functions ===
 def upload_image():
@@ -517,8 +481,6 @@ def run_detection():
         tabs_created = True
         preview_label.pack_forget()
         upload_btn.pack_forget()
-        measure_frame.pack_forget()
-        detect_defects_btn.pack_forget()
         run_detection_btn.pack_forget()
     else:
         update_preview_tab()
@@ -526,8 +488,7 @@ def run_detection():
         update_results_tab()
 def create_tabs():
     global tabs, preview_img_label, annotated_img_label, results_textbox
-    global upload_tab_measure_frame, upload_tab_measure_buttons
-    global upload_tab_detect_defects_btn, upload_tab_upload_btn, upload_tab_run_detection_btn
+    global upload_tab_upload_btn, upload_tab_run_detection_btn
     global annotated_canvas, canvas_img_id
 
     tabs = ctk.CTkTabview(main_frame)
@@ -541,20 +502,6 @@ def create_tabs():
 
     upload_tab_upload_btn = ctk.CTkButton(upload_tab, text="Upload Image", command=lambda: upload_image())
     upload_tab_upload_btn.pack(pady=(10,10))
-
-    upload_tab_measure_frame = ctk.CTkFrame(upload_tab)
-    upload_tab_measure_frame.pack(pady=(0,10))
-
-    upload_tab_measure_buttons = {}
-    for key in ["rectangle", "lens"]:
-        def make_cmd(k=key):
-            return lambda: set_measurement(k)
-        new_btn = ctk.CTkButton(upload_tab_measure_frame, text=measure_buttons[key].cget("text"), command=make_cmd())
-        new_btn.pack(side="left", padx=5)
-        upload_tab_measure_buttons[key] = new_btn
-
-    upload_tab_detect_defects_btn = ctk.CTkButton(upload_tab, text="Detect Defects", command=lambda: run_detection())
-    upload_tab_detect_defects_btn.pack(pady=(0,10))
 
     upload_tab_run_detection_btn = ctk.CTkButton(upload_tab, text="Run Detection", command=lambda: run_detection())
     upload_tab_run_detection_btn.pack(pady=(0,10))
@@ -624,15 +571,6 @@ def update_results_tab():
 def update_upload_tab_buttons_visibility():
     if tabs is None:
         return
-    mode = mode_var.get()
-    if mode == "measurement":
-        upload_tab_measure_frame.pack(pady=(0,10))
-        upload_tab_detect_defects_btn.pack_forget()
-        for btn in upload_tab_measure_buttons.values():
-            btn.pack(side="left", padx=5)
-    elif mode == "defect":
-        upload_tab_measure_frame.pack_forget()
-        upload_tab_detect_defects_btn.pack(pady=(0,10))
 
 def on_mousewheel(event):
     global zoom_level
