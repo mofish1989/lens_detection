@@ -117,7 +117,6 @@ measure_buttons = {}
 def set_measurement(opt):
     global measure_type
     measure_type = opt
-    messagebox.showinfo("Selected", f"Measurement option: {opt}")
 
 def update_measure_buttons():
     if mode_var.get() == "measurement":
