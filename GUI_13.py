@@ -594,14 +594,22 @@ def run_detection():
 
         if mode == "defect":
             save_path = os.path.join(defects_dir, f"{base_name}_annotated_{timestamp}.png")
+            txt_path = os.path.join(defects_dir, f"{base_name}_annotated_{timestamp}.txt")
         elif mode == "measurement":
             if zoom_var.get() == "40x":
                 save_path = os.path.join(meas_40x_dir, f"{base_name}_annotated_{timestamp}.png")
+                txt_path = os.path.join(meas_40x_dir, f"{base_name}_annotated_{timestamp}.txt")
             else:
                 save_path = os.path.join(meas_200x_dir, f"{base_name}_annotated_{timestamp}.png")
+                txt_path = os.path.join(meas_200x_dir, f"{base_name}_annotated_{timestamp}.txt")
         else:
             save_path = os.path.join(HISTORY_DIR, f"{base_name}_annotated_{timestamp}.png")
+            txt_path = os.path.join(HISTORY_DIR, f"{base_name}_annotated_{timestamp}.txt")
         cv2.imwrite(save_path, annotated_image)
+        # Save results text output
+        with open(txt_path, "w") as f:
+            for line in results_lines:
+                f.write(line + "\n")
 
     if not tabs_created:
         # Remove initial view before creating tabs
@@ -719,7 +727,7 @@ def create_tabs():
     results_textbox = ctk.CTkTextbox(results_content, 
                                     wrap="word", 
                                     fg_color="white", 
-                                    font=("Arial", 25),  # Standard results text size
+                                    font=("Arial", 14),  # Reduced results text size
                                     corner_radius=10)  # Consistent corner radius
     results_textbox.pack(fill="both", expand=True, padx=20, pady=20)  # Standard padding
     results_textbox.configure(state="disabled")
