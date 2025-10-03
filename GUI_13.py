@@ -32,9 +32,30 @@ os.makedirs(HISTORY_DIR, exist_ok=True)
 ctk.set_appearance_mode("light")  # Set light mode for better visibility
 ctk.set_default_color_theme("blue")  # Use blue theme for professional look
 app = ctk.CTk()
-app.geometry("1400x900")  # Standard window size
+
+# Responsive window configuration
+def get_screen_size():
+    """Get screen dimensions for responsive sizing"""
+    return app.winfo_screenwidth(), app.winfo_screenheight()
+
+def set_responsive_geometry():
+    """Set responsive window size based on screen dimensions"""
+    screen_width, screen_height = get_screen_size()
+    
+    # Calculate responsive dimensions (80% of screen size, with constraints)
+    window_width = min(max(int(screen_width * 0.8), 1200), 1600)  # Between 1200-1600px
+    window_height = min(max(int(screen_height * 0.8), 800), 1000)  # Between 800-1000px
+    
+    # Center the window
+    x = (screen_width - window_width) // 2
+    y = (screen_height - window_height) // 2
+    
+    app.geometry(f"{window_width}x{window_height}+{x}+{y}")
+    app.minsize(1000, 600)  # Minimum usable size
+
+set_responsive_geometry()
 app.title("Lens Quality Check")
-app.configure(fg_color="#f5f5f5")  # Very light grey background for main window
+app.configure(fg_color="#e0e0e0")  # Lighter grey background for main window
 
 # --- Globals ---
 uploaded_image = None
@@ -59,11 +80,44 @@ upload_tab_upload_btn = None
 upload_tab_run_detection_btn = None
 preview_img_label = None
 
-# --- Left Sidebar ---
-sidebar = ctk.CTkFrame(app, width=280, fg_color="#eaeaea", corner_radius=15)
-sidebar.pack(side="left", fill="y", padx=(20, 0), pady=20)
+# --- Responsive Sidebar ---
+def get_responsive_sidebar_width():
+    """Calculate responsive sidebar width based on window size"""
+    window_width = app.winfo_width()
+    if window_width < 1200:
+        return 250  # Narrower sidebar for smaller screens
+    elif window_width < 1400:
+        return 280  # Standard sidebar
+    else:
+        return 320  # Wider sidebar for larger screens
 
-# Header with standardized font
+# Initialize with responsive width
+initial_sidebar_width = 280  # Default until window is realized
+sidebar = ctk.CTkFrame(app, width=initial_sidebar_width, fg_color="#eaeaea", corner_radius=15)
+sidebar.pack(side="left", fill="y", padx=(20, 10), pady=20)  # Added right padding for gap
+sidebar.pack_propagate(False)  # Maintain fixed width
+
+# Add visual separator/gap between sidebar and main frame
+# separator = ctk.CTkFrame(app, width=2, fg_color="#d0d0d0", corner_radius=0)  # Light grey separator
+# separator.pack(side="left", fill="y", pady=20)
+
+# Responsive font sizing
+def get_responsive_font_size(base_size, scale_factor=1.0):
+    """Calculate responsive font size based on window dimensions"""
+    window_width = app.winfo_width()
+    if window_width < 1200:
+        return int(base_size * 0.9 * scale_factor)  # Smaller fonts for smaller screens
+    elif window_width > 1500:
+        return int(base_size * 1.1 * scale_factor)  # Larger fonts for larger screens
+    else:
+        return int(base_size * scale_factor)
+
+# Header with responsive font
+def update_header_font():
+    """Update header font size responsively"""
+    font_size = get_responsive_font_size(22)
+    project_label.configure(font=("Arial", font_size, "bold"))
+
 project_label = ctk.CTkLabel(sidebar, text="Lens Quality Check", 
                            font=("Arial", 22, "bold"),
                            wraplength=200)
@@ -138,10 +192,10 @@ zoom_var.trace_add("write", update_status_label)
 update_status_label()
 
 main_frame = ctk.CTkFrame(app, fg_color="#eaeaea", corner_radius=15)
-main_frame.pack(side="left", fill="both", expand=True, padx=20, pady=20)  # Standard padding
+main_frame.pack(side="left", fill="both", expand=True, padx=(10, 20), pady=20)  # Left padding for gap
 
 # Content container for better organization
-content_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
+content_frame = ctk.CTkFrame(main_frame, fg_color="#eaeaea")
 content_frame.pack(fill="both", expand=True, padx=10, pady=10)
 
 # Auto-update measurement type based on zoom level
@@ -179,17 +233,35 @@ def show_preview_image(img):
     # Calculate aspect ratio for resizing
     aspect_ratio = img_pil.width / img_pil.height
     
-    # Target dimensions while maintaining aspect ratio
-    target_width = 800
+    # Get responsive dimensions based on available space
+    def get_available_preview_space():
+        """Calculate available space for image preview"""
+        window_width = app.winfo_width()
+        window_height = app.winfo_height()
+        
+        # Account for sidebar and padding
+        available_width = max(window_width - 400, 400)  # Subtract sidebar + padding
+        available_height = max(window_height - 200, 300)  # Subtract header + controls
+        
+        return available_width, available_height
+    
+    available_width, available_height = get_available_preview_space()
+    
+    # Calculate target dimensions while maintaining aspect ratio
+    target_width = min(available_width * 0.8, 800)  # Max 80% of available width
     target_height = int(target_width / aspect_ratio)
     
-    # Ensure height doesn't exceed maximum
-    if target_height > 600:
-        target_height = 600
+    # Ensure height doesn't exceed available space
+    if target_height > available_height * 0.8:
+        target_height = int(available_height * 0.8)
         target_width = int(target_height * aspect_ratio)
     
-    img_pil = img_pil.resize((target_width, target_height), Image.LANCZOS)
-    image_preview_tk = ctk.CTkImage(light_image=img_pil, size=(target_width, target_height))
+    # Ensure minimum usable size
+    target_width = max(target_width, 300)
+    target_height = max(target_height, 200)
+    
+    img_pil = img_pil.resize((int(target_width), int(target_height)), Image.LANCZOS)
+    image_preview_tk = ctk.CTkImage(light_image=img_pil, size=(int(target_width), int(target_height)))
     
     if preview_img_label:
         preview_img_label.configure(image=image_preview_tk, text="")
@@ -581,88 +653,102 @@ def create_tabs():
     global upload_tab_upload_btn, upload_tab_run_detection_btn
     global annotated_canvas, canvas_img_id
 
-    # Create tabview with white background and custom styling
+    # Responsive tab configuration
+    def get_responsive_tab_padding():
+        """Get responsive padding based on window size"""
+        window_width = app.winfo_width()
+        if window_width < 1200:
+            return 10, 10  # Smaller padding for smaller screens
+        elif window_width > 1500:
+            return 30, 25  # Larger padding for larger screens
+        else:
+            return 20, 20  # Standard padding
+
+    pad_x, pad_y = get_responsive_tab_padding()
+
+    # Create tabview with responsive styling
     tab_container = ctk.CTkFrame(content_frame, fg_color="#eaeaea", corner_radius=10)
-    tab_container.pack(fill="both", expand=True, padx=20, pady=20)
+    tab_container.pack(fill="both", expand=True, padx=pad_x, pady=pad_y)
+    
     tabs = ctk.CTkTabview(tab_container, 
                          fg_color="#eaeaea",
                          segmented_button_fg_color="#e0e0e0",
                          segmented_button_selected_color="#3b8ed0",
                          segmented_button_selected_hover_color="#36719f",
-                         height=50)  # Increased tab height
-    tabs.pack(fill="both", expand=True, padx=20, pady=20)
+                         height=50)  # Responsive tab height
+    tabs.pack(fill="both", expand=True, padx=pad_x, pady=pad_y)
     
-    # Configure tab button style after creation
-    tabs._segmented_button.configure(font=("Arial", 14, "bold"))  # Made font bold for better visibility
-    
-    # Add more padding to the tab buttons container
+    # Configure responsive tab button style
+    responsive_font_size = get_responsive_font_size(14)
+    tabs._segmented_button.configure(font=("Arial", responsive_font_size, "bold"))
     tabs._segmented_button.configure(corner_radius=10)
-    tabs._segmented_button.grid_configure(padx=30, pady=15)  # Increased padding around tab buttons
+    tabs._segmented_button.grid_configure(padx=pad_x, pady=pad_y//2)
     
-    # First, create all tabs
+    # Create all tabs
     tabs.add("Upload New")
     tabs.add("Annotated Image")
     tabs.add("Results")
     
-    # Then configure each tab
+    # Configure each tab responsively
     for tab_name in ["Upload New", "Annotated Image", "Results"]:
         tab = tabs.tab(tab_name)
         tab.configure(fg_color="#eaeaea")
-        # Add padding inside each tab
+        # Add responsive padding inside each tab
         inner_frame = ctk.CTkFrame(tab, fg_color="#eaeaea")
-        inner_frame.pack(fill="both", expand=True, padx=20, pady=20)
+        inner_frame.pack(fill="both", expand=True, padx=pad_x, pady=pad_y)
 
     # Get Upload New tab
     upload_tab = tabs.tab("Upload New")
-    
-    # Get the inner frame we created for this tab
     upload_content = upload_tab.winfo_children()[0]
 
-    # Upload button at the top
-    upload_tab_upload_btn = ctk.CTkButton(upload_content, 
+    # Responsive button sizing
+    button_width = max(min(int(app.winfo_width() * 0.12), 200), 120)  # Slightly smaller for side-by-side
+    button_font_size = get_responsive_font_size(14)
+
+    # Create a frame to hold buttons side by side
+    button_frame = ctk.CTkFrame(upload_content, fg_color="transparent")
+    button_frame.pack(pady=(0, 10))
+
+    # Upload button with responsive sizing
+    upload_tab_upload_btn = ctk.CTkButton(button_frame, 
                                          text="Upload Image",
                                          command=lambda: upload_image(),
-                                         width=200,
+                                         width=button_width,
                                          height=40,
                                          corner_radius=10,
-                                         font=("Arial", 14))
-    upload_tab_upload_btn.pack(pady=(0, 5))
+                                         font=("Arial", button_font_size))
+    upload_tab_upload_btn.pack(side="left", padx=(0, 10))
 
-    # Run Detection button below Upload button
-    upload_tab_run_detection_btn = ctk.CTkButton(upload_tab,
+    # Run Detection button with responsive sizing
+    upload_tab_run_detection_btn = ctk.CTkButton(button_frame,
                                                 text="Run Detection",
                                                 command=lambda: run_detection(),
-                                                width=200,
+                                                width=button_width,
                                                 height=40,
                                                 corner_radius=10,
-                                                font=("Arial", 14))
-    upload_tab_run_detection_btn.pack(pady=(5, 10))
+                                                font=("Arial", button_font_size))
+    upload_tab_run_detection_btn.pack(side="left", padx=(10, 0))
 
-    # Preview image container with white background - below buttons
-    preview_frame = ctk.CTkFrame(upload_tab, fg_color="#eaeaea", corner_radius=10)
-    preview_frame.pack(fill="both", expand=True, padx=20, pady=(5, 10))
+    # Preview image container - responsive sizing
+    preview_frame = ctk.CTkFrame(upload_content, fg_color="#eaeaea", corner_radius=10)
+    preview_frame.pack(fill="both", expand=True, padx=pad_x, pady=(10, 0))
 
+    # Responsive preview label - no fixed dimensions, adapts to container
     preview_img_label = ctk.CTkLabel(preview_frame, 
                                    text="No image uploaded", 
-                                   width=800,
-                                   height=600,
-                                   fg_color="#eaeaea",  # Light gray background
+                                   fg_color="#eaeaea",
                                    corner_radius=10)
-    preview_img_label.pack(expand=True, padx=10, pady=10)
+    preview_img_label.pack(expand=True, fill="both", padx=10, pady=10)
 
     # Get Annotated Image tab
     annotated_tab = tabs.tab("Annotated Image")
-    
-    # Get the inner frame we created for this tab
     annotated_content = annotated_tab.winfo_children()[0]
 
-    # Annotated image canvas with standard dimensions
+    # Responsive annotated image canvas - no fixed dimensions
     annotated_canvas = ctk.CTkCanvas(annotated_content, 
-                                   width=1200,  # Standard annotated view width
-                                   height=800,  # Standard annotated view height
                                    bg="gray90", 
                                    highlightthickness=0)
-    annotated_canvas.pack(fill="both", expand=True, padx=20, pady=20)  # Standard padding
+    annotated_canvas.pack(fill="both", expand=True, padx=pad_x, pady=pad_y)
 
     canvas_img_id = None
 
@@ -674,16 +760,16 @@ def create_tabs():
 
     # Get Results tab
     results_tab = tabs.tab("Results")
-    
-    # Get the inner frame we created for this tab
     results_content = results_tab.winfo_children()[0]
     
+    # Responsive results textbox
+    results_font_size = get_responsive_font_size(14)
     results_textbox = ctk.CTkTextbox(results_content, 
                                     wrap="word", 
                                     fg_color="white", 
-                                    font=("Arial", 14),  # Reduced results text size
-                                    corner_radius=10)  # Consistent corner radius
-    results_textbox.pack(fill="both", expand=True, padx=20, pady=20)  # Standard padding
+                                    font=("Arial", results_font_size),
+                                    corner_radius=10)
+    results_textbox.pack(fill="both", expand=True, padx=pad_x, pady=pad_y)
     results_textbox.configure(state="disabled")
 
     update_preview_tab()
@@ -695,17 +781,9 @@ def update_preview_tab():
     global image_preview_tk
     if uploaded_image is None:
         return
-    img_rgb = cv2.cvtColor(uploaded_image, cv2.COLOR_BGR2RGB)
-    img_pil = Image.fromarray(img_rgb)
-    # Calculate aspect ratio
-    aspect_ratio = img_pil.width / img_pil.height
-    target_width = 600
-    target_height = int(target_width / aspect_ratio)
-    if target_height > 400:
-        target_height = 400
-        target_width = int(target_height * aspect_ratio)
-    image_preview_tk = ctk.CTkImage(light_image=img_pil, size=(target_width, target_height))
-    preview_img_label.configure(image=image_preview_tk, text="")
+    
+    # Use the responsive show_preview_image function
+    show_preview_image(uploaded_image)
 
 def update_annotated_tab():
     global annotated_image_tk, zoom_level, annotated_canvas, canvas_img_id
@@ -737,6 +815,29 @@ def update_results_tab():
 def update_upload_tab_buttons_visibility():
     if tabs is None:
         return
+
+# === Additional Responsive Utilities ===
+def refresh_responsive_elements():
+    """Refresh all responsive elements when needed"""
+    if tabs_created:
+        # Update fonts
+        update_header_font()
+        
+        # Update button sizes if they exist
+        if upload_tab_upload_btn:
+            button_width = max(min(int(app.winfo_width() * 0.12), 200), 120)  # Smaller for side-by-side
+            button_font_size = get_responsive_font_size(14)
+            upload_tab_upload_btn.configure(width=button_width, font=("Arial", button_font_size))
+            upload_tab_run_detection_btn.configure(width=button_width, font=("Arial", button_font_size))
+        
+        # Update results textbox font if it exists
+        if 'results_textbox' in globals():
+            results_font_size = get_responsive_font_size(14)
+            results_textbox.configure(font=("Arial", results_font_size))
+        
+        # Refresh image preview
+        if uploaded_image is not None:
+            show_preview_image(uploaded_image)
 
 
 def on_mousewheel(event):
@@ -777,6 +878,23 @@ def on_pan_move(event):
 # Show tabbed interface by default on launch (after create_tabs is defined and event handlers are defined)
 create_tabs()
 tabs_created = True
+
+# === Responsive Window Management ===
+def on_window_resize(event=None):
+    """Handle window resize events to update responsive elements"""
+    if event and event.widget == app:  # Only handle main window resize
+        # Update sidebar width
+        new_sidebar_width = get_responsive_sidebar_width()
+        sidebar.configure(width=new_sidebar_width)
+        
+        # Refresh all responsive elements
+        app.after_idle(refresh_responsive_elements)
+
+# Bind resize event
+app.bind("<Configure>", on_window_resize)
+
+# Initial responsive setup after window is realized
+app.after(100, lambda: refresh_responsive_elements())
 
 def on_mousewheel(event):
     global zoom_level
