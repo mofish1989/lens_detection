@@ -269,18 +269,44 @@ def run_detection():
             circles.sort(key=lambda c: c[0])
             for idx, (cx, cy, d_mm, in_tol) in enumerate(circles, start=1):
                 label = f"Lens {idx}"
-                cv2.putText(annotated, label, (cx - 30, cy - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0,0,0), 2)
+                # Find the top of the box for label placement
+                # Find the corresponding box for this lens
+                box = None
+                for box_candidate, cls in zip(res_lens.boxes.xyxy.cpu().numpy(), res_lens.boxes.cls.cpu().numpy()):
+                    x1, y1, x2, y2 = map(int, box_candidate)
+                    label_candidate = res_lens.names[int(cls)].lower()
+                    center_x, center_y = (x1 + x2)//2, (y1 + y2)//2
+                    if label_candidate == "lens" and abs(center_x - cx) < 5 and abs(center_y - cy) < 5:
+                        box = (x1, y1, x2, y2)
+                        break
+                if box:
+                    label_x = int((box[0] + box[2]) // 2) - 30
+                    label_y = int(box[1]) - 20
+                else:
+                    label_x = cx - 30
+                    label_y = cy - 30
+                cv2.putText(annotated, label, (label_x, label_y), cv2.FONT_HERSHEY_SIMPLEX, 2.0, (0,0,0), 5)
+                # Annotate diameter below the box
+                if box:
+                    diam_x = int(box[0]) + 10  # Start from left edge, with small padding
+                    diam_y = int(box[3]) + 80  # Lower, so it doesn't overlap with box edge
+                else:
+                    diam_x = cx - 60
+                    diam_y = cy + 80
+                diam_text = f"Dia: {d_mm:.3f}mm"
+                cv2.putText(annotated, diam_text, (diam_x, diam_y), cv2.FONT_HERSHEY_SIMPLEX, 2.0, (0,0,255) if not in_tol else (0,128,0), 4)
                 results_text.append(f"{label} Diameter: {d_mm:.3f}mm {'OK' if in_tol else 'Out of Tolerance'}")
 
+            # Calculate lens-to-lens distances and record in text output only (no image annotation)
             for i in range(len(circles) - 1):
                 c1 = circles[i]
                 c2 = circles[i+1]
                 dist_mm = abs(c2[0] - c1[0]) / pixel_scale
-                results_text.append(f"Distance Lens {i+1} to Lens {i+2}: {dist_mm:.3f}mm")
+                results_text.append(f"Center-to-center distance Lens {i+1} to Lens {i+2}: {dist_mm:.3f}mm")
 
             if len(circles) > 1:
                 total_dist_mm = abs(circles[-1][0] - circles[0][0]) / pixel_scale
-                results_text.append(f"Distance Lens 1 to Lens {len(circles)}: {total_dist_mm:.3f}mm")
+                results_text.append(f"Center-to-center distance Lens 1 to Lens {len(circles)}: {total_dist_mm:.3f}mm")
         
         # --- Rectangle Measurement Logic (Segmentation) ---
         elif measure_type == "rectangle":
@@ -449,7 +475,7 @@ def run_detection():
 
                     # Add measurement text
                     text = f"Out Rect: {length_mm:.3f}mm x {breadth_mm:.3f}mm"
-                    font_scale = min(img_width, img_height) / 2000
+                    font_scale = min(img_width, img_height) / 900  # Enlarged font size
                     text_x = int(min(box[:, 0]))  # Leftmost x coordinate
                     text_y = int(min(box[:, 1])) - 20  # Above the top of the rectangle
                     cv2.putText(annotated, text, (text_x, text_y),
