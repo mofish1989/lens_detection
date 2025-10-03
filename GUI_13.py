@@ -556,7 +556,25 @@ def run_detection():
     if annotated_image is not None:
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         base_name = os.path.splitext(os.path.basename(uploaded_image_path))[0]
-        save_path = os.path.join(HISTORY_DIR, f"{base_name}_annotated_{timestamp}.png")
+        # Organize folders
+        measurements_dir = os.path.join(HISTORY_DIR, "measurements")
+        defects_dir = os.path.join(HISTORY_DIR, "defects")
+        meas_40x_dir = os.path.join(measurements_dir, "40x")
+        meas_200x_dir = os.path.join(measurements_dir, "200x")
+        os.makedirs(measurements_dir, exist_ok=True)
+        os.makedirs(defects_dir, exist_ok=True)
+        os.makedirs(meas_40x_dir, exist_ok=True)
+        os.makedirs(meas_200x_dir, exist_ok=True)
+
+        if mode == "defect":
+            save_path = os.path.join(defects_dir, f"{base_name}_annotated_{timestamp}.png")
+        elif mode == "measurement":
+            if zoom_var.get() == "40x":
+                save_path = os.path.join(meas_40x_dir, f"{base_name}_annotated_{timestamp}.png")
+            else:
+                save_path = os.path.join(meas_200x_dir, f"{base_name}_annotated_{timestamp}.png")
+        else:
+            save_path = os.path.join(HISTORY_DIR, f"{base_name}_annotated_{timestamp}.png")
         cv2.imwrite(save_path, annotated_image)
 
     if not tabs_created:
