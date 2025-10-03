@@ -28,12 +28,13 @@ PIXEL_SCALES = {"40x": 380, "200x": 1940}
 HISTORY_DIR = "history"
 os.makedirs(HISTORY_DIR, exist_ok=True)
 
-# === App Window ===
-ctk.set_appearance_mode("light")
-ctk.set_default_color_theme("blue")
+# === App Window Configuration ===
+ctk.set_appearance_mode("light")  # Set light mode for better visibility
+ctk.set_default_color_theme("blue")  # Use blue theme for professional look
 app = ctk.CTk()
-app.geometry("1400x900")
+app.geometry("1400x900")  # Standard window size
 app.title("Lens Quality Check")
+app.configure(fg_color="#f0f0f0")  # Light gray background for main window
 
 # --- Globals ---
 uploaded_image = None
@@ -59,10 +60,13 @@ upload_tab_run_detection_btn = None
 preview_img_label = None
 
 # --- Left Sidebar ---
-sidebar = ctk.CTkFrame(app, width=280)
-sidebar.pack(side="left", fill="y")
+sidebar = ctk.CTkFrame(app, width=280, fg_color="white", corner_radius=15)  # Standard sidebar width
+sidebar.pack(side="left", fill="y", padx=(20, 0), pady=20)
 
-project_label = ctk.CTkLabel(sidebar, text="Lens Quality Check", font=("Arial", 22, "bold"))
+# Header with standardized font
+project_label = ctk.CTkLabel(sidebar, text="Lens Quality Check", 
+                           font=("Arial", 22, "bold"),
+                           wraplength=200)
 project_label.pack(pady=15)
 
 def load_logo_image(path, max_w=200, max_h=100):
@@ -89,18 +93,32 @@ if logo2_img:
 
 mode_var = ctk.StringVar(value="measurement")
 ctk.CTkLabel(sidebar, text="Mode:").pack(pady=(0,5))
-mode_dropdown = ctk.CTkOptionMenu(sidebar, variable=mode_var, values=["measurement", "defect"])
-mode_dropdown.pack(pady=(0,20))
+# Mode selection dropdown with consistent styling
+mode_dropdown = ctk.CTkOptionMenu(sidebar, 
+                                variable=mode_var, 
+                                values=["measurement", "defect"],
+                                corner_radius=10)  # Consistent corner radius
+mode_dropdown.pack(pady=(0,20))  # Standard vertical spacing
 
+# Zoom level selection with consistent styling
 zoom_var = ctk.StringVar(value="40x")
 zoom_options = ["40x", "200x"]
-zoom_dropdown = ctk.CTkOptionMenu(sidebar, variable=zoom_var, values=zoom_options, command=lambda _: update_measurement_type())
-zoom_dropdown.pack(pady=(0,20))
+zoom_dropdown = ctk.CTkOptionMenu(sidebar, 
+                                variable=zoom_var, 
+                                values=zoom_options, 
+                                command=lambda _: update_measurement_type(),
+                                corner_radius=10)  # Consistent corner radius
+zoom_dropdown.pack(pady=(0,20))  # Standard vertical spacing
 
 # Status Label
-status_label = ctk.CTkLabel(sidebar, text="Current Mode: Rectangle Measurement (40x)", 
-                           wraplength=200, justify="center", font=("Arial", 12))
-status_label.pack(pady=(10,20))
+# Status label with standardized font and wrapping
+status_label = ctk.CTkLabel(sidebar, 
+                           text="Current Mode: Rectangle Measurement (40x)", 
+                           wraplength=200,  # Standard sidebar text wrapping
+                           justify="center", 
+                           font=("Arial", 12),  # Standard status text size
+                           corner_radius=10)  # Consistent corner radius
+status_label.pack(pady=(10,20))  # Standard vertical spacing
 
 def update_status_label(*args):
     mode = mode_var.get()
@@ -119,15 +137,49 @@ zoom_var.trace_add("write", update_status_label)
 # Initialize status label
 update_status_label()
 
-main_frame = ctk.CTkFrame(app)
-main_frame.pack(side="left", fill="both", expand=True, padx=20, pady=20)
+main_frame = ctk.CTkFrame(app, fg_color="white", corner_radius=15)
+main_frame.pack(side="left", fill="both", expand=True, padx=20, pady=20)  # Standard padding
 
-# === Enlarged Upload Button & Preview Image ===
-upload_btn = ctk.CTkButton(main_frame, text="Upload Image", command=lambda: upload_image(), width=200, height=50, font=("Arial", 18))
-upload_btn.pack(pady=(10,20))
+# Content container for better organization
+content_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
+content_frame.pack(fill="both", expand=True, padx=10, pady=10)
 
-preview_label = ctk.CTkLabel(main_frame, text="No image uploaded", width=1000, height=600, fg_color="gray90", corner_radius=10)
-preview_label.pack(pady=(10,20))
+# === Initial View Container ===
+initial_view = ctk.CTkFrame(content_frame, fg_color="transparent")
+initial_view.pack(fill="both", expand=True)
+
+# Upload button at the top
+upload_btn = ctk.CTkButton(initial_view, 
+                          text="Upload Image", 
+                          command=lambda: upload_image(), 
+                          width=200,
+                          height=40,
+                          font=("Arial", 14),
+                          corner_radius=10)
+upload_btn.pack(pady=(20,5), anchor="n")
+
+# Run detection button
+run_detection_btn = ctk.CTkButton(initial_view,
+                                 text="Run Detection",
+                                 command=lambda: run_detection(),
+                                 width=200,
+                                 height=40,
+                                 font=("Arial", 14),
+                                 corner_radius=10,
+                                 state="disabled")  # Initially disabled
+run_detection_btn.pack(pady=(5,10), anchor="n")
+
+# Preview container with white background
+preview_container = ctk.CTkFrame(initial_view, fg_color="white", corner_radius=10)
+preview_container.pack(fill="both", expand=True, padx=20, pady=(10,10))
+
+preview_label = ctk.CTkLabel(preview_container, 
+                           text="No image uploaded", 
+                           width=1000,
+                           height=700,
+                           fg_color="#f5f5f5", 
+                           corner_radius=10)
+preview_label.pack(expand=True, padx=10, pady=10)
 
 # Auto-update measurement type based on zoom level
 def update_measurement_type():
@@ -136,10 +188,6 @@ def update_measurement_type():
         measure_type = "rectangle"
     else:
         measure_type = "lens"
-
-run_detection_btn = ctk.CTkButton(main_frame, text="Run Detection", command=lambda: run_detection())
-run_detection_btn.pack(pady=(0,15))
-run_detection_btn.configure(state="disabled")
 
 zoom_var.trace_add("write", lambda *args: update_measurement_type())
 
@@ -163,10 +211,24 @@ def show_preview_image(img):
     global image_preview_tk
     img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     img_pil = Image.fromarray(img_rgb)
-    img_pil.thumbnail((1000,600))
+    
+    # Calculate aspect ratio for resizing
+    aspect_ratio = img_pil.width / img_pil.height
+    
+    # Target dimensions while maintaining aspect ratio
+    target_width = 800
+    target_height = int(target_width / aspect_ratio)
+    
+    # Ensure height doesn't exceed maximum
+    if target_height > 600:
+        target_height = 600
+        target_width = int(target_height * aspect_ratio)
+    
+    img_pil = img_pil.resize((target_width, target_height), Image.LANCZOS)
     image_preview_tk = ImageTk.PhotoImage(img_pil)
+    
     if tabs:
-        preview_img_label.configure(image=image_preview_tk)
+        preview_img_label.configure(image=image_preview_tk, text="")
         preview_img_label.image = image_preview_tk
     else:
         preview_label.configure(image=image_preview_tk, text="")
@@ -499,10 +561,10 @@ def run_detection():
         cv2.imwrite(save_path, annotated_image)
 
     if not tabs_created:
+        # Remove initial view before creating tabs
+        initial_view.pack_forget()
         create_tabs()
         tabs_created = True
-        preview_label.pack_forget()
-        upload_btn.pack_forget()
         run_detection_btn.pack_forget()
     else:
         update_preview_tab()
@@ -513,29 +575,67 @@ def create_tabs():
     global upload_tab_upload_btn, upload_tab_run_detection_btn
     global annotated_canvas, canvas_img_id
 
-    tabs = ctk.CTkTabview(main_frame)
+    # Create tabview with white background and custom styling
+    tabs = ctk.CTkTabview(content_frame, 
+                         fg_color="white",
+                         segmented_button_fg_color="#e0e0e0",
+                         segmented_button_selected_color="#3b8ed0",
+                         segmented_button_selected_hover_color="#36719f")
     tabs.pack(fill="both", expand=True)
 
+    # Upload New tab
     tabs.add("Upload New")
     upload_tab = tabs.tab("Upload New")
+    upload_tab.configure(fg_color="white")  # Set white background
 
-    top_spacer = ctk.CTkFrame(upload_tab, height=30, fg_color="transparent")
+    # Minimal top spacing
+    top_spacer = ctk.CTkFrame(upload_tab, height=10, fg_color="transparent")
     top_spacer.pack()
 
-    upload_tab_upload_btn = ctk.CTkButton(upload_tab, text="Upload Image", command=lambda: upload_image())
-    upload_tab_upload_btn.pack(pady=(10,10))
+    # Upload button at the top
+    upload_tab_upload_btn = ctk.CTkButton(upload_tab, 
+                                         text="Upload Image",
+                                         command=lambda: upload_image(),
+                                         width=200,
+                                         height=40,
+                                         corner_radius=10,
+                                         font=("Arial", 14))
+    upload_tab_upload_btn.pack(pady=(0, 5))
 
-    upload_tab_run_detection_btn = ctk.CTkButton(upload_tab, text="Run Detection", command=lambda: run_detection())
-    upload_tab_run_detection_btn.pack(pady=(0,10))
+    # Run Detection button below Upload button
+    upload_tab_run_detection_btn = ctk.CTkButton(upload_tab,
+                                                text="Run Detection",
+                                                command=lambda: run_detection(),
+                                                width=200,
+                                                height=40,
+                                                corner_radius=10,
+                                                font=("Arial", 14))
+    upload_tab_run_detection_btn.pack(pady=(5, 10))
 
-    preview_img_label = ctk.CTkLabel(upload_tab, text="No image uploaded", width=600, height=400, fg_color="gray90", corner_radius=10)
-    preview_img_label.pack(pady=(0,15))
+    # Preview image container with white background - below buttons
+    preview_frame = ctk.CTkFrame(upload_tab, fg_color="white", corner_radius=10)
+    preview_frame.pack(fill="both", expand=True, padx=20, pady=(5, 10))
 
+    preview_img_label = ctk.CTkLabel(preview_frame, 
+                                   text="No image uploaded", 
+                                   width=800,
+                                   height=600,  # Increased height for larger preview
+                                   fg_color="#f5f5f5",  # Light gray background
+                                   corner_radius=10)
+    preview_img_label.pack(expand=True, padx=10, pady=10)
+
+    # Annotated Image tab
     tabs.add("Annotated Image")
     annotated_tab = tabs.tab("Annotated Image")
+    annotated_tab.configure(fg_color="white")  # White background
 
-    annotated_canvas = ctk.CTkCanvas(annotated_tab, width=1200, height=800, bg="gray90", highlightthickness=0)
-    annotated_canvas.pack(fill="both", expand=True, padx=10, pady=10)
+    # Annotated image canvas with standard dimensions
+    annotated_canvas = ctk.CTkCanvas(annotated_tab, 
+                                   width=1200,  # Standard annotated view width
+                                   height=800,  # Standard annotated view height
+                                   bg="gray90", 
+                                   highlightthickness=0)
+    annotated_canvas.pack(fill="both", expand=True, padx=20, pady=20)  # Standard padding
 
     canvas_img_id = None
 
@@ -545,9 +645,14 @@ def create_tabs():
     annotated_canvas.bind("<ButtonPress-1>", on_pan_start)
     annotated_canvas.bind("<B1-Motion>", on_pan_move)
 
+    # Results tab with standardized text size
     tabs.add("Results")
-    results_textbox = ctk.CTkTextbox(tabs.tab("Results"), wrap="word", fg_color="white", font=("Arial", 25))
-    results_textbox.pack(fill="both", expand=True, padx=10, pady=10)
+    results_textbox = ctk.CTkTextbox(tabs.tab("Results"), 
+                                    wrap="word", 
+                                    fg_color="white", 
+                                    font=("Arial", 25),  # Standard results text size
+                                    corner_radius=10)  # Consistent corner radius
+    results_textbox.pack(fill="both", expand=True, padx=20, pady=20)  # Standard padding
     results_textbox.configure(state="disabled")
 
     update_preview_tab()
