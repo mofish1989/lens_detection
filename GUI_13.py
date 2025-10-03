@@ -34,7 +34,7 @@ ctk.set_default_color_theme("blue")  # Use blue theme for professional look
 app = ctk.CTk()
 app.geometry("1400x900")  # Standard window size
 app.title("Lens Quality Check")
-app.configure(fg_color="#f0f0f0")  # Light gray background for main window
+app.configure(fg_color="#f5f5f5")  # Very light grey background for main window
 
 # --- Globals ---
 uploaded_image = None
@@ -60,7 +60,7 @@ upload_tab_run_detection_btn = None
 preview_img_label = None
 
 # --- Left Sidebar ---
-sidebar = ctk.CTkFrame(app, width=280, fg_color="white", corner_radius=15)  # Standard sidebar width
+sidebar = ctk.CTkFrame(app, width=280, fg_color="#eaeaea", corner_radius=15)
 sidebar.pack(side="left", fill="y", padx=(20, 0), pady=20)
 
 # Header with standardized font
@@ -137,49 +137,12 @@ zoom_var.trace_add("write", update_status_label)
 # Initialize status label
 update_status_label()
 
-main_frame = ctk.CTkFrame(app, fg_color="white", corner_radius=15)
+main_frame = ctk.CTkFrame(app, fg_color="#eaeaea", corner_radius=15)
 main_frame.pack(side="left", fill="both", expand=True, padx=20, pady=20)  # Standard padding
 
 # Content container for better organization
 content_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
 content_frame.pack(fill="both", expand=True, padx=10, pady=10)
-
-# === Initial View Container ===
-initial_view = ctk.CTkFrame(content_frame, fg_color="transparent")
-initial_view.pack(fill="both", expand=True)
-
-# Upload button at the top
-upload_btn = ctk.CTkButton(initial_view, 
-                          text="Upload Image", 
-                          command=lambda: upload_image(), 
-                          width=200,
-                          height=40,
-                          font=("Arial", 14),
-                          corner_radius=10)
-upload_btn.pack(pady=(20,5), anchor="n")
-
-# Run detection button
-run_detection_btn = ctk.CTkButton(initial_view,
-                                 text="Run Detection",
-                                 command=lambda: run_detection(),
-                                 width=200,
-                                 height=40,
-                                 font=("Arial", 14),
-                                 corner_radius=10,
-                                 state="disabled")  # Initially disabled
-run_detection_btn.pack(pady=(5,10), anchor="n")
-
-# Preview container with white background
-preview_container = ctk.CTkFrame(initial_view, fg_color="white", corner_radius=10)
-preview_container.pack(fill="both", expand=True, padx=20, pady=(10,10))
-
-preview_label = ctk.CTkLabel(preview_container, 
-                           text="No image uploaded", 
-                           width=1000,
-                           height=700,
-                           fg_color="#f5f5f5", 
-                           corner_radius=10)
-preview_label.pack(expand=True, padx=10, pady=10)
 
 # Auto-update measurement type based on zoom level
 def update_measurement_type():
@@ -205,7 +168,8 @@ def upload_image():
     uploaded_image_path = path
     zoom_level = 1.0
     show_preview_image(img)
-    run_detection_btn.configure(state="normal")
+    if upload_tab_run_detection_btn:
+        upload_tab_run_detection_btn.configure(state="normal")
 
 def show_preview_image(img):
     global image_preview_tk
@@ -227,10 +191,8 @@ def show_preview_image(img):
     img_pil = img_pil.resize((target_width, target_height), Image.LANCZOS)
     image_preview_tk = ctk.CTkImage(light_image=img_pil, size=(target_width, target_height))
     
-    if tabs:
+    if preview_img_label:
         preview_img_label.configure(image=image_preview_tk, text="")
-    else:
-        preview_label.configure(image=image_preview_tk, text="")
 
 # === Detection Function (Measurement & Defect) ===
 def run_detection():
@@ -611,27 +573,19 @@ def run_detection():
             for line in results_lines:
                 f.write(line + "\n")
 
-    if not tabs_created:
-        # Remove initial view before creating tabs
-        initial_view.pack_forget()
-        create_tabs()
-        tabs_created = True
-        run_detection_btn.pack_forget()
-    else:
-        update_preview_tab()
-        update_annotated_tab()
-        update_results_tab()
+    update_preview_tab()
+    update_annotated_tab()
+    update_results_tab()
 def create_tabs():
     global tabs, preview_img_label, annotated_img_label, results_textbox
     global upload_tab_upload_btn, upload_tab_run_detection_btn
     global annotated_canvas, canvas_img_id
 
     # Create tabview with white background and custom styling
-    tab_container = ctk.CTkFrame(content_frame, fg_color="white", corner_radius=10)
+    tab_container = ctk.CTkFrame(content_frame, fg_color="#eaeaea", corner_radius=10)
     tab_container.pack(fill="both", expand=True, padx=20, pady=20)
-
     tabs = ctk.CTkTabview(tab_container, 
-                         fg_color="white",
+                         fg_color="#eaeaea",
                          segmented_button_fg_color="#e0e0e0",
                          segmented_button_selected_color="#3b8ed0",
                          segmented_button_selected_hover_color="#36719f",
@@ -653,9 +607,9 @@ def create_tabs():
     # Then configure each tab
     for tab_name in ["Upload New", "Annotated Image", "Results"]:
         tab = tabs.tab(tab_name)
-        tab.configure(fg_color="white")
+        tab.configure(fg_color="#eaeaea")
         # Add padding inside each tab
-        inner_frame = ctk.CTkFrame(tab, fg_color="transparent")
+        inner_frame = ctk.CTkFrame(tab, fg_color="#eaeaea")
         inner_frame.pack(fill="both", expand=True, padx=20, pady=20)
 
     # Get Upload New tab
@@ -685,14 +639,14 @@ def create_tabs():
     upload_tab_run_detection_btn.pack(pady=(5, 10))
 
     # Preview image container with white background - below buttons
-    preview_frame = ctk.CTkFrame(upload_tab, fg_color="white", corner_radius=10)
+    preview_frame = ctk.CTkFrame(upload_tab, fg_color="#eaeaea", corner_radius=10)
     preview_frame.pack(fill="both", expand=True, padx=20, pady=(5, 10))
 
     preview_img_label = ctk.CTkLabel(preview_frame, 
                                    text="No image uploaded", 
                                    width=800,
-                                   height=600,  # Increased height for larger preview
-                                   fg_color="#f5f5f5",  # Light gray background
+                                   height=600,
+                                   fg_color="#eaeaea",  # Light gray background
                                    corner_radius=10)
     preview_img_label.pack(expand=True, padx=10, pady=10)
 
@@ -783,6 +737,46 @@ def update_results_tab():
 def update_upload_tab_buttons_visibility():
     if tabs is None:
         return
+
+
+def on_mousewheel(event):
+    global zoom_level
+    if annotated_image is None:
+        return
+    if event.num == 4 or event.delta > 0:
+        zoom_factor = 1.1
+    elif event.num == 5 or event.delta < 0:
+        zoom_factor = 0.9
+    else:
+        return
+    new_zoom = zoom_level * zoom_factor
+    if new_zoom < min_zoom:
+        new_zoom = min_zoom
+    elif new_zoom > max_zoom:
+        new_zoom = max_zoom
+    if abs(new_zoom - zoom_level) < 0.001:
+        return
+    zoom_level = new_zoom
+    update_annotated_tab()
+
+def on_pan_start(event):
+    global pan_start_x, pan_start_y
+    pan_start_x = event.x
+    pan_start_y = event.y
+
+def on_pan_move(event):
+    global pan_start_x, pan_start_y, annotated_canvas, canvas_img_id
+    if canvas_img_id is None:
+        return
+    dx = event.x - pan_start_x
+    dy = event.y - pan_start_y
+    annotated_canvas.move(canvas_img_id, dx, dy)
+    pan_start_x = event.x
+    pan_start_y = event.y
+
+# Show tabbed interface by default on launch (after create_tabs is defined and event handlers are defined)
+create_tabs()
+tabs_created = True
 
 def on_mousewheel(event):
     global zoom_level
