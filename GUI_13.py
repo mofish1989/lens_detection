@@ -225,11 +225,10 @@ def show_preview_image(img):
         target_width = int(target_height * aspect_ratio)
     
     img_pil = img_pil.resize((target_width, target_height), Image.LANCZOS)
-    image_preview_tk = ImageTk.PhotoImage(img_pil)
+    image_preview_tk = ctk.CTkImage(light_image=img_pil, size=(target_width, target_height))
     
     if tabs:
         preview_img_label.configure(image=image_preview_tk, text="")
-        preview_img_label.image = image_preview_tk
     else:
         preview_label.configure(image=image_preview_tk, text="")
 
@@ -576,24 +575,45 @@ def create_tabs():
     global annotated_canvas, canvas_img_id
 
     # Create tabview with white background and custom styling
-    tabs = ctk.CTkTabview(content_frame, 
+    tab_container = ctk.CTkFrame(content_frame, fg_color="white", corner_radius=10)
+    tab_container.pack(fill="both", expand=True, padx=20, pady=20)
+
+    tabs = ctk.CTkTabview(tab_container, 
                          fg_color="white",
                          segmented_button_fg_color="#e0e0e0",
                          segmented_button_selected_color="#3b8ed0",
-                         segmented_button_selected_hover_color="#36719f")
-    tabs.pack(fill="both", expand=True)
-
-    # Upload New tab
+                         segmented_button_selected_hover_color="#36719f",
+                         height=50)  # Increased tab height
+    tabs.pack(fill="both", expand=True, padx=20, pady=20)
+    
+    # Configure tab button style after creation
+    tabs._segmented_button.configure(font=("Arial", 14, "bold"))  # Made font bold for better visibility
+    
+    # Add more padding to the tab buttons container
+    tabs._segmented_button.configure(corner_radius=10)
+    tabs._segmented_button.grid_configure(padx=30, pady=15)  # Increased padding around tab buttons
+    
+    # First, create all tabs
     tabs.add("Upload New")
-    upload_tab = tabs.tab("Upload New")
-    upload_tab.configure(fg_color="white")  # Set white background
+    tabs.add("Annotated Image")
+    tabs.add("Results")
+    
+    # Then configure each tab
+    for tab_name in ["Upload New", "Annotated Image", "Results"]:
+        tab = tabs.tab(tab_name)
+        tab.configure(fg_color="white")
+        # Add padding inside each tab
+        inner_frame = ctk.CTkFrame(tab, fg_color="transparent")
+        inner_frame.pack(fill="both", expand=True, padx=20, pady=20)
 
-    # Minimal top spacing
-    top_spacer = ctk.CTkFrame(upload_tab, height=10, fg_color="transparent")
-    top_spacer.pack()
+    # Get Upload New tab
+    upload_tab = tabs.tab("Upload New")
+    
+    # Get the inner frame we created for this tab
+    upload_content = upload_tab.winfo_children()[0]
 
     # Upload button at the top
-    upload_tab_upload_btn = ctk.CTkButton(upload_tab, 
+    upload_tab_upload_btn = ctk.CTkButton(upload_content, 
                                          text="Upload Image",
                                          command=lambda: upload_image(),
                                          width=200,
@@ -624,13 +644,14 @@ def create_tabs():
                                    corner_radius=10)
     preview_img_label.pack(expand=True, padx=10, pady=10)
 
-    # Annotated Image tab
-    tabs.add("Annotated Image")
+    # Get Annotated Image tab
     annotated_tab = tabs.tab("Annotated Image")
-    annotated_tab.configure(fg_color="white")  # White background
+    
+    # Get the inner frame we created for this tab
+    annotated_content = annotated_tab.winfo_children()[0]
 
     # Annotated image canvas with standard dimensions
-    annotated_canvas = ctk.CTkCanvas(annotated_tab, 
+    annotated_canvas = ctk.CTkCanvas(annotated_content, 
                                    width=1200,  # Standard annotated view width
                                    height=800,  # Standard annotated view height
                                    bg="gray90", 
@@ -645,9 +666,13 @@ def create_tabs():
     annotated_canvas.bind("<ButtonPress-1>", on_pan_start)
     annotated_canvas.bind("<B1-Motion>", on_pan_move)
 
-    # Results tab with standardized text size
-    tabs.add("Results")
-    results_textbox = ctk.CTkTextbox(tabs.tab("Results"), 
+    # Get Results tab
+    results_tab = tabs.tab("Results")
+    
+    # Get the inner frame we created for this tab
+    results_content = results_tab.winfo_children()[0]
+    
+    results_textbox = ctk.CTkTextbox(results_content, 
                                     wrap="word", 
                                     fg_color="white", 
                                     font=("Arial", 25),  # Standard results text size
@@ -666,10 +691,15 @@ def update_preview_tab():
         return
     img_rgb = cv2.cvtColor(uploaded_image, cv2.COLOR_BGR2RGB)
     img_pil = Image.fromarray(img_rgb)
-    img_pil.thumbnail((600,400))
-    image_preview_tk = ImageTk.PhotoImage(img_pil)
+    # Calculate aspect ratio
+    aspect_ratio = img_pil.width / img_pil.height
+    target_width = 600
+    target_height = int(target_width / aspect_ratio)
+    if target_height > 400:
+        target_height = 400
+        target_width = int(target_height * aspect_ratio)
+    image_preview_tk = ctk.CTkImage(light_image=img_pil, size=(target_width, target_height))
     preview_img_label.configure(image=image_preview_tk, text="")
-    preview_img_label.image = image_preview_tk
 
 def update_annotated_tab():
     global annotated_image_tk, zoom_level, annotated_canvas, canvas_img_id
@@ -679,9 +709,12 @@ def update_annotated_tab():
     img_pil = Image.fromarray(img_rgb)
     new_size = (int(img_pil.width * zoom_level), int(img_pil.height * zoom_level))
     resized_img = img_pil.resize(new_size, Image.LANCZOS)
-    annotated_image_tk = ImageTk.PhotoImage(resized_img)
+    annotated_image_tk = ctk.CTkImage(light_image=resized_img, size=new_size)
     annotated_canvas.delete("all")
-    canvas_img_id = annotated_canvas.create_image(0, 0, anchor="nw", image=annotated_image_tk)
+    # For Canvas widget we still need to use PhotoImage
+    canvas_image = ImageTk.PhotoImage(resized_img)
+    canvas_img_id = annotated_canvas.create_image(0, 0, anchor="nw", image=canvas_image)
+    annotated_canvas.image = canvas_image  # Keep a reference
     annotated_canvas.config(scrollregion=(0, 0, new_size[0], new_size[1]))
 
 def update_results_tab():
