@@ -73,8 +73,8 @@ def load_logo_image(path, max_w=200, max_h=100):
     except Exception:
         return None
 
-logo1_img = load_logo_image("Screenshot 2025-07-10 150120.png")
-logo2_img = load_logo_image("sp_informal_logo_300.png")
+logo1_img = load_logo_image("lsp-logo.png")
+logo2_img = load_logo_image("sp-logo1.png")
 
 if logo1_img:
     logo1_label = ctk.CTkLabel(sidebar, image=logo1_img, text="")
