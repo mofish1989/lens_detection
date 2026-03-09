@@ -6,10 +6,12 @@ from PIL import Image, ImageTk
 import os
 from ultralytics import YOLO
 import datetime  # For timestamp saving
+from sklearn.linear_model import RANSACRegressor
+from scipy.stats import iqr
 
 # === Load YOLO Models ===
 model_lens = YOLO("200x_lens.pt")       # For lens/circles
-model_rectangle = YOLO("outer_rect.pt")  # For rectangles (out - segmentation model)
+# model_rectangle = YOLO("outer_rect.pt")  # For rectangles (out - segmentation model)
 # model_rectangle = YOLO("40x_rectt.pt")  # For rectangles (in/out)
 model_defects = YOLO("defects.pt")      # For defect detection
 
@@ -24,6 +26,46 @@ TARGET_LENS_DIAMETER = 0.240
 LENS_TOL = 0.005
 
 PIXEL_SCALES = {"40x": 380, "200x": 1940}
+
+# === Rectangle Detection Profiles for 40x ===
+PROFILES = {
+    "blue": {"outer": (10.0, 2.0, 2.0), "inner": (4.0, 1.0, 2.5), "confirm": 5, "deep_scan": 12},
+    "dark": {"outer": (25.0, 2.0, 1.2), "inner": (25.0, 2.0, 1.2), "confirm": 5, "deep_scan": 12},
+    "grey": {"outer": (3.0, 2.0, 1.5), "inner": (4.0, 2.0, 2.0), "confirm": 5, "deep_scan": 0},
+    "yellow_dark": {"outer": (5.0, 1.5, 2.0), "inner": (10.0, 2.5, 2.0), "confirm": 6, "deep_scan": 6},
+    "yellow_light": {"outer": (5.0, 1.0, 2.0), "inner": (4.0, 2.5, 2.0), "confirm": 4, "deep_scan": 6}
+}
+
+def detect_profile(image):
+    """Detect the image profile based on color characteristics for 40x rectangle detection."""
+    hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+    # Global Metrics
+    avg_sat = np.mean(hsv[:, :, 1])
+    avg_val = np.mean(hsv[:, :, 2])
+
+    # Contrast Score: Standard Deviation of grayscale intensities
+    contrast_score = np.std(gray)
+
+    # 1. Check for Yellow First (Hue 15-35)
+    yellow_mask = cv2.inRange(hsv, np.array([15, 50, 50]), np.array([35, 255, 255]))
+    yellow_pct = np.count_nonzero(yellow_mask) / yellow_mask.size
+    if yellow_pct > 0.05:
+        if avg_val < 132 or avg_sat > 78:
+            return "yellow_dark"
+        else:
+            return "yellow_light"
+
+    # 2. Identify the 'Blue' Profile (Strong Saturation)
+    if avg_sat > 50:
+        return "blue"
+
+    # 3. Differentiate Dark vs Grey using Contrast
+    if contrast_score > 15.0:
+        return "dark"
+    else:
+        return "grey"
 
 HISTORY_DIR = "history"
 os.makedirs(HISTORY_DIR, exist_ok=True)
@@ -267,6 +309,202 @@ def show_preview_image(img):
         preview_img_label.configure(image=image_preview_tk, text="")
 
 # === Detection Function (Measurement & Defect) ===
+def detect_rectangles_40x(image, pixel_scale):
+    """
+    Detect outer and inner rectangles in 40x images using edge detection and line fitting.
+    Returns annotated image and measurement results.
+    """
+    # Detect profile
+    active_case = detect_profile(image)
+    p = PROFILES[active_case]
+    
+    # Preprocessing based on profile
+    if "yellow" in active_case:
+        hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+        lower_yellow = np.array([15, 45, 45])
+        upper_yellow = np.array([35, 255, 255])
+        gray = cv2.inRange(hsv, lower_yellow, upper_yellow)
+        kernel = np.ones((3,3), np.uint8)
+        gray = cv2.morphologyEx(gray, cv2.MORPH_OPEN, kernel)
+        gray = cv2.GaussianBlur(gray, (5, 5), 0)
+    else:
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    
+    h, w = gray.shape
+    output = image.copy()
+    
+    # Dynamic parameters
+    c_size, c_mid = 15, 10
+    corners = [gray[0:c_size, 0:c_size], gray[0:c_size, -c_size:],
+               gray[-c_size:, 0:c_size], gray[-c_size:, -c_size:]]
+    bg_avg_outer = np.median([np.mean(c) for c in corners])
+    bg_std_outer = np.median([iqr(c) for c in corners])
+    
+    center_roi = gray[h//2-c_mid : h//2+c_mid, w//2-c_mid : w//2+c_mid]
+    bg_avg_inner = np.mean(center_roi)
+    bg_std_inner = iqr(center_roi)
+    
+    def calc_thresh(std, params_tuple):
+        mini, sens, scale = params_tuple
+        return max(mini, std * sens) * scale
+    
+    thresh_outer = calc_thresh(bg_std_outer, p["outer"])
+    thresh_inner = calc_thresh(bg_std_inner, p["inner"])
+    confirm_pix = p["confirm"]
+    deep_scan_val = p["deep_scan"]
+    
+    # Scan zone definitions
+    outer_v_range_top = np.concatenate([np.arange(int(w*0.05), int(w*0.25)), np.arange(int(w*0.75), int(w*0.95))])
+    outer_v_range = np.concatenate([np.arange(int(w*0.05), int(w*0.45)), np.arange(int(w*0.55), int(w*0.95))])
+    outer_h_range = np.concatenate([np.arange(int(h*0.05), int(h*0.45)), np.arange(int(h*0.55), int(h*0.95))])
+    inner_v_range = np.arange(int(w*0.2), int(w*0.8))
+    inner_h_range = np.arange(int(h*0.4), int(h*0.9))
+    
+    def get_raw_points(scan_range, thresh, axis='y', mode='inward', direction='low', ref_bg=128, dot_color=(255,0,0)):
+        rv1, rv2 = [], []
+        mid = (h // 2) if axis == 'x' else (w // 2)
+        intensity_ceiling = 250
+        
+        for coord in scan_range:
+            line_data = gray[:, coord].astype(float) if axis == 'y' else gray[coord, :].astype(float)
+            
+            if mode == 'inward':
+                indices = range(len(line_data)-1-confirm_pix, mid, -1) if direction == 'high' else range(confirm_pix, mid)
+            else:
+                indices = range(mid + 25, len(line_data)-confirm_pix) if direction == 'high' else range(mid - 25, confirm_pix, -1)
+            
+            for i in indices:
+                pixel_val = line_data[i]
+                if abs(pixel_val - ref_bg) > thresh and pixel_val < intensity_ceiling:
+                    if deep_scan_val > 0:
+                        step = 1 if (mode == 'inward' and direction == 'low') or (mode == 'outward' and direction == 'high') else -1
+                        win_indices = [i + (s * step) for s in range(deep_scan_val)]
+                        win_indices = [idx for idx in win_indices if 0 <= idx < len(line_data)]
+                        win_values = [abs(line_data[idx] - ref_bg) if line_data[idx] < intensity_ceiling else 0 for idx in win_indices]
+                        peak_local_idx = np.argmax(win_values)
+                        edge_idx = win_indices[peak_local_idx]
+                    else:
+                        edge_idx = i
+                    
+                    rv1.append(coord)
+                    rv2.append(edge_idx)
+                    px, py = (coord, edge_idx) if axis == 'y' else (edge_idx, coord)
+                    cv2.circle(output, (px, py), 1, dot_color, -1)
+                    break
+        return [np.array(rv1), np.array(rv2)]
+    
+    def fit_line_ransac(points):
+        if len(points[0]) < 5: return None
+        indep = points[0].reshape(-1, 1)
+        dep = points[1]
+        try:
+            ransac = RANSACRegressor(residual_threshold=3.0)
+            ransac.fit(indep, dep)
+            return [ransac.estimator_.coef_[0], ransac.estimator_.intercept_]
+        except:
+            return None
+    
+    def draw_infinite_line(line, is_vertical, color):
+        m, c = line
+        if is_vertical:
+            p1, p2 = (int(m*0 + c), 0), (int(m*h + c), h)
+        else:
+            p1, p2 = (0, int(m*0 + c)), (w, int(m*w + c))
+        cv2.line(output, p1, p2, color, 1)
+    
+    def intersect(line_h, line_v):
+        mh, ch = line_h
+        mv, cv = line_v
+        denom = (1.0 - mv * mh)
+        if abs(denom) < 1e-7: denom = 1e-7
+        x_c = (mv * ch + cv) / denom
+        y_c = mh * x_c + ch
+        return [int(x_c), int(y_c)]
+    
+    # Rectangle configurations
+    rect_configs = [
+        {
+            'name': 'Outer',
+            'color': (0, 200, 0),  # Green
+            'points': {
+                'top':    get_raw_points(outer_v_range_top, thresh_outer, 'y', 'inward', 'low',  bg_avg_outer, (0, 200, 0)),
+                'bottom': get_raw_points(outer_v_range,     thresh_outer, 'y', 'inward', 'high', bg_avg_outer, (0, 200, 0)),
+                'left':   get_raw_points(outer_h_range,     thresh_outer, 'x', 'inward', 'low',  bg_avg_outer, (0, 200, 0)),
+                'right':  get_raw_points(outer_h_range,     thresh_outer, 'x', 'inward', 'high', bg_avg_outer, (0, 200, 0))
+            }
+        },
+        {
+            'name': 'Inner',
+            'color': (200, 0, 180),  # Magenta
+            'points': {
+                'top':    get_raw_points(inner_v_range, thresh_inner, 'y', 'outward', 'low',  bg_avg_inner, (200, 0, 180)),
+                'bottom': get_raw_points(inner_v_range, thresh_inner, 'y', 'outward', 'high', bg_avg_inner, (200, 0, 180)),
+                'left':   get_raw_points(inner_h_range, thresh_inner, 'x', 'outward', 'low',  bg_avg_inner, (200, 0, 180)),
+                'right':  get_raw_points(inner_h_range, thresh_inner, 'x', 'outward', 'high', bg_avg_inner, (200, 0, 180))
+            }
+        }
+    ]
+    
+    results = []
+    
+    for cfg in rect_configs:
+        lines = {k: fit_line_ransac(cfg['points'][k]) for k in cfg['points']}
+        
+        if all(L is not None for L in lines.values()):
+            for k in lines:
+                draw_infinite_line(lines[k], k in ['left', 'right'], cfg['color'])
+            
+            pts = [
+                intersect(lines['top'],    lines['left']),
+                intersect(lines['top'],    lines['right']),
+                intersect(lines['bottom'], lines['right']),
+                intersect(lines['bottom'], lines['left'])
+            ]
+            
+            box = np.array(pts, np.int32)
+            cv2.polylines(output, [box.reshape((-1, 1, 2))], isClosed=True, color=cfg['color'], thickness=3)
+            
+            width = np.linalg.norm(np.array(pts[0]) - np.array(pts[1]))
+            height = np.linalg.norm(np.array(pts[0]) - np.array(pts[3]))
+            
+            # Convert to mm
+            width_mm = width / pixel_scale
+            height_mm = height / pixel_scale
+            
+            # Determine length and breadth (length is the longer side)
+            length_mm = max(width_mm, height_mm)
+            breadth_mm = min(width_mm, height_mm)
+            
+            # Check tolerance based on rectangle type
+            if cfg['name'] == 'Outer':
+                length_tol = abs(length_mm - OUT_RECT_LENGTH) <= RECT_TOL
+                breadth_tol = abs(breadth_mm - OUT_RECT_BREADTH) <= RECT_TOL
+            else:  # Inner
+                length_tol = abs(length_mm - IN_RECT_LENGTH) <= RECT_TOL
+                breadth_tol = abs(breadth_mm - IN_RECT_BREADTH) <= RECT_TOL
+            
+            in_tol = length_tol and breadth_tol
+            
+            text_pos = (pts[0][0], pts[0][1] - 20 if cfg['name'] == 'Outer' else pts[0][1] + 55)
+            label = f"{cfg['name']}: {length_mm:.3f}x{breadth_mm:.3f}mm"
+            cv2.putText(output, label, text_pos, cv2.FONT_HERSHEY_SIMPLEX, 0.8, cfg['color'], 2)
+            
+            results.append({
+                'name': cfg['name'],
+                'length_mm': length_mm,
+                'breadth_mm': breadth_mm,
+                'in_tolerance': in_tol,
+                'length_ok': length_tol,
+                'breadth_ok': breadth_tol
+            })
+        else:
+            results.append({
+                'name': cfg['name'],
+                'error': 'Could not detect rectangle boundaries'
+            })
+    
+    return output, results
+
 def run_detection():
     global annotated_image, annotated_image_tk, results_lines, tabs_created, tabs, zoom_level
 
@@ -342,162 +580,179 @@ def run_detection():
                 total_dist_mm = abs(circles[-1][0] - circles[0][0]) / pixel_scale
                 results_text.append(f"Center-to-center distance Lens 1 to Lens {len(circles)}: {total_dist_mm:.3f}mm")
         
-        # --- Rectangle Measurement Logic (Segmentation) ---
+        # --- Rectangle Measurement Logic ---
         elif measure_type == "rectangle":
-            # Run detection and get results with confidence threshold
-            res_rect = model_rectangle(uploaded_image, conf=0.7)[0]
-            
-            # # Debug information
-            # print(f"Model output available fields: {dir(res_rect)}")
-            # if hasattr(res_rect, 'masks') and res_rect.masks is not None:
-            #     print(f"Number of masks: {len(res_rect.masks.data)}")
-            # if hasattr(res_rect, 'boxes'):
-            #     print(f"Number of boxes: {len(res_rect.boxes)}")
-            #     print(f"Classes detected: {res_rect.boxes.cls.cpu().numpy()}")
-            #     print(f"Available class names: {res_rect.names}")
-            
-            # Lists to store detected rectangles
-            out_rects = []
+            zoom = zoom_var.get()
+            if zoom == "40x":
+                # Use edge detection method for 40x
+                annotated, rect_results = detect_rectangles_40x(uploaded_image, pixel_scale)
+                
+                for result in rect_results:
+                    if 'error' in result:
+                        results_text.append(f"{result['name']} Rectangle: {result['error']}")
+                    else:
+                        status = "OK" if result['in_tolerance'] else "Out of Tolerance"
+                        results_text.append(f"{result['name']} Rectangle: {result['length_mm']:.3f}mm x {result['breadth_mm']:.3f}mm - {status}")
+                        if not result['length_ok']:
+                            results_text.append(f"  Length out of tolerance: {result['length_mm']:.3f}mm")
+                        if not result['breadth_ok']:
+                            results_text.append(f"  Breadth out of tolerance: {result['breadth_mm']:.3f}mm")
+            else:
+                # Use YOLO segmentation method for 200x
+                # Run detection and get results with confidence threshold
+                res_rect = model_rectangle(uploaded_image, conf=0.7)[0]
+                
+                # # Debug information
+                # print(f"Model output available fields: {dir(res_rect)}")
+                # if hasattr(res_rect, 'masks') and res_rect.masks is not None:
+                #     print(f"Number of masks: {len(res_rect.masks.data)}")
+                # if hasattr(res_rect, 'boxes'):
+                #     print(f"Number of boxes: {len(res_rect.boxes)}")
+                #     print(f"Classes detected: {res_rect.boxes.cls.cpu().numpy()}")
+                #     print(f"Available class names: {res_rect.names}")
+                
+                # Lists to store detected rectangles
+                out_rects = []
 
                 # Process masks if available
-            if hasattr(res_rect, 'masks') and res_rect.masks is not None:
-                # Get image dimensions
-                img_height, img_width = uploaded_image.shape[:2]
-                print(f"\nImage dimensions: {img_width}x{img_height}")
-                
-                # Create a combined mask at the image resolution
-                combined_mask = np.zeros((img_height, img_width), dtype=np.uint8)
-                
-                # Process each mask and class from the segmentation results
-                for i in range(len(res_rect.masks.data)):
-                    # Get mask and ensure it's in the correct format
-                    mask = res_rect.masks.data[i].cpu().numpy()
-                    
-                    # Get mask dimensions and resize if needed
-                    mask_height, mask_width = mask.shape
-                    if mask_height != img_height or mask_width != img_width:
-                        mask = cv2.resize(mask, (img_width, img_height))
-                    
-                    # Get original image dimensions
+                if hasattr(res_rect, 'masks') and res_rect.masks is not None:
+                    # Get image dimensions
                     img_height, img_width = uploaded_image.shape[:2]
-                    mask_height, mask_width = mask.shape[:2]
+                    print(f"\nImage dimensions: {img_width}x{img_height}")
                     
-                    # Convert mask to proper binary image format with optimized threshold
-                    # Scale the kernel sizes based on image dimensions
-                    scale_factor = min(img_width, img_height) / 800  # baseline for scaling
+                    # Create a combined mask at the image resolution
+                    combined_mask = np.zeros((img_height, img_width), dtype=np.uint8)
                     
-                    # Convert float mask to binary
-                    mask = (mask > 0.3).astype("uint8") * 255
-                    
-                    # Scale kernel sizes based on image resolution
-                    small_size = max(3, int(3 * scale_factor))
-                    large_size = max(5, int(5 * scale_factor))
-                    
-                    # Ensure kernel sizes are odd
-                    small_size = small_size + 1 if small_size % 2 == 0 else small_size
-                    large_size = large_size + 1 if large_size % 2 == 0 else large_size
-                    
-                    kernel_small = np.ones((small_size, small_size), np.uint8)
-                    kernel_large = np.ones((large_size, large_size), np.uint8)
-                    
-                    # Apply morphological operations for clean contours
-                    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel_small, iterations=1)
-                    mask = cv2.dilate(mask, kernel_small, iterations=1)
-                    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel_large, iterations=1)
-                    mask = cv2.erode(mask, kernel_small, iterations=1)
-                    
-                    # Update combined mask
-                    combined_mask = cv2.bitwise_or(combined_mask, mask)
-                    
-                    # Apply threshold to ensure binary mask
-                    _, mask_binary = cv2.threshold(mask, 127, 255, cv2.THRESH_BINARY)
-                    
-                    # Find contours in the binary mask
-                    contours, hierarchy = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                    
-                    if not contours:
-                        continue
-                    
-                    # Sort contours by area in descending order
-                    contours = sorted(contours, key=cv2.contourArea, reverse=True)
-                    
-                    # Process the largest contour
-                    contour = contours[0]
-                    contour_area = cv2.contourArea(contour)
-                    
-                    # Use a slightly larger epsilon for stable rectangle detection
-                    epsilon = 0.005 * cv2.arcLength(contour, True)
-                    approx_contour = cv2.approxPolyDP(contour, epsilon, True)
-                    
-                    # If the approximated contour has too few points, use a smaller epsilon
-                    if len(approx_contour) < 10:
-                        epsilon = 0.002 * cv2.arcLength(contour, True)
+                    # Process each mask and class from the segmentation results
+                    for i in range(len(res_rect.masks.data)):
+                        # Get mask and ensure it's in the correct format
+                        mask = res_rect.masks.data[i].cpu().numpy()
+                        
+                        # Get mask dimensions and resize if needed
+                        mask_height, mask_width = mask.shape
+                        if mask_height != img_height or mask_width != img_width:
+                            mask = cv2.resize(mask, (img_width, img_height))
+                        
+                        # Get original image dimensions
+                        img_height, img_width = uploaded_image.shape[:2]
+                        mask_height, mask_width = mask.shape[:2]
+                        
+                        # Convert mask to proper binary image format with optimized threshold
+                        # Scale the kernel sizes based on image dimensions
+                        scale_factor = min(img_width, img_height) / 800  # baseline for scaling
+                        
+                        # Convert float mask to binary
+                        mask = (mask > 0.3).astype("uint8") * 255
+                        
+                        # Scale kernel sizes based on image resolution
+                        small_size = max(3, int(3 * scale_factor))
+                        large_size = max(5, int(5 * scale_factor))
+                        
+                        # Ensure kernel sizes are odd
+                        small_size = small_size + 1 if small_size % 2 == 0 else small_size
+                        large_size = large_size + 1 if large_size % 2 == 0 else large_size
+                        
+                        kernel_small = np.ones((small_size, small_size), np.uint8)
+                        kernel_large = np.ones((large_size, large_size), np.uint8)
+                        
+                        # Apply morphological operations for clean contours
+                        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel_small, iterations=1)
+                        mask = cv2.dilate(mask, kernel_small, iterations=1)
+                        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel_large, iterations=1)
+                        mask = cv2.erode(mask, kernel_small, iterations=1)
+                        
+                        # Update combined mask
+                        combined_mask = cv2.bitwise_or(combined_mask, mask)
+                        
+                        # Apply threshold to ensure binary mask
+                        _, mask_binary = cv2.threshold(mask, 127, 255, cv2.THRESH_BINARY)
+                        
+                        # Find contours in the binary mask
+                        contours, hierarchy = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                        
+                        if not contours:
+                            continue
+                        
+                        # Sort contours by area in descending order
+                        contours = sorted(contours, key=cv2.contourArea, reverse=True)
+                        
+                        # Process the largest contour
+                        contour = contours[0]
+                        contour_area = cv2.contourArea(contour)
+                        
+                        # Use a slightly larger epsilon for stable rectangle detection
+                        epsilon = 0.005 * cv2.arcLength(contour, True)
                         approx_contour = cv2.approxPolyDP(contour, epsilon, True)
+                        
+                        # If the approximated contour has too few points, use a smaller epsilon
+                        if len(approx_contour) < 10:
+                            epsilon = 0.002 * cv2.arcLength(contour, True)
+                            approx_contour = cv2.approxPolyDP(contour, epsilon, True)
                                         
-                    # Get the minimum area rectangle from both contours and pick the better one
-                    rect_orig = cv2.minAreaRect(contour)
-                    rect_approx = cv2.minAreaRect(approx_contour)
-                    
-                    # Function to normalize rectangle measurements
-                    def normalize_rect(rect):
+                        # Get the minimum area rectangle from both contours and pick the better one
+                        rect_orig = cv2.minAreaRect(contour)
+                        rect_approx = cv2.minAreaRect(approx_contour)
+                        
+                        # Function to normalize rectangle measurements
+                        def normalize_rect(rect):
+                            (cx, cy), (w, h), angle = rect
+                            if angle < -45:
+                                angle += 90
+                                w, h = h, w
+                            return (cx, cy), (w, h), angle
+                        
+                        # Function to score rectangle quality
+                        def score_rect(rect):
+                            _, (w, h), _ = normalize_rect(rect)
+                            w_mm, h_mm = w/pixel_scale, h/pixel_scale
+                            length_mm, breadth_mm = max(w_mm, h_mm), min(w_mm, h_mm)
+                            length_error = abs(length_mm - OUT_RECT_LENGTH)
+                            breadth_error = abs(breadth_mm - OUT_RECT_BREADTH)
+                            return length_error + breadth_error
+                        
+                        # Choose the better rectangle based on measurement error
+                        rect = rect_orig if score_rect(rect_orig) < score_rect(rect_approx) else rect_approx
+                        (cx, cy), (w, h), angle = normalize_rect(rect)
+                        
+                        # Get rectangle measurements
+                        
+                        # Get the pixel scale from the constants
+                        pixel_scale = PIXEL_SCALES.get(zoom_var.get(), 120)  # 120 pixels/mm for 40x
+                        
+                        # Convert image dimensions back to original scale if they were resized
+                        if mask_height != img_height or mask_width != img_width:
+                            scale_factor_h = img_height / mask_height
+                            scale_factor_w = img_width / mask_width
+                            scale_factor = (scale_factor_h + scale_factor_w) / 2
+                            w = w * scale_factor
+                            h = h * scale_factor
+                        
+                        # Always use the actual width/height regardless of rotation
+                        w_actual = max(w, h)  # Longer side
+                        h_actual = min(w, h)  # Shorter side
+                        length_mm = w_actual / pixel_scale
+                        breadth_mm = h_actual / pixel_scale
+                        
+
+                        
+                        # Get rectangle corners for drawing
+                        box = cv2.boxPoints(rect)
+                        box = np.int32(box)
+                        
+                        # Get the minimum area rectangle and measurements
+                        rect = cv2.minAreaRect(contour)
                         (cx, cy), (w, h), angle = rect
+                        box = cv2.boxPoints(rect)
+                        box = np.int32(box)
+
+                        # Normalize dimensions and convert to mm
                         if angle < -45:
                             angle += 90
                             w, h = h, w
-                        return (cx, cy), (w, h), angle
-                    
-                    # Function to score rectangle quality
-                    def score_rect(rect):
-                        _, (w, h), _ = normalize_rect(rect)
-                        w_mm, h_mm = w/pixel_scale, h/pixel_scale
-                        length_mm, breadth_mm = max(w_mm, h_mm), min(w_mm, h_mm)
-                        length_error = abs(length_mm - OUT_RECT_LENGTH)
-                        breadth_error = abs(breadth_mm - OUT_RECT_BREADTH)
-                        return length_error + breadth_error
-                    
-                    # Choose the better rectangle based on measurement error
-                    rect = rect_orig if score_rect(rect_orig) < score_rect(rect_approx) else rect_approx
-                    (cx, cy), (w, h), angle = normalize_rect(rect)
-                    
-                    # Get rectangle measurements
-                    
-                    # Get the pixel scale from the constants
-                    pixel_scale = PIXEL_SCALES.get(zoom_var.get(), 120)  # 120 pixels/mm for 40x
-                    
-                    # Convert image dimensions back to original scale if they were resized
-                    if mask_height != img_height or mask_width != img_width:
-                        scale_factor_h = img_height / mask_height
-                        scale_factor_w = img_width / mask_width
-                        scale_factor = (scale_factor_h + scale_factor_w) / 2
-                        w = w * scale_factor
-                        h = h * scale_factor
-                    
-                    # Always use the actual width/height regardless of rotation
-                    w_actual = max(w, h)  # Longer side
-                    h_actual = min(w, h)  # Shorter side
-                    length_mm = w_actual / pixel_scale
-                    breadth_mm = h_actual / pixel_scale
-                    
+                        length_mm = max(w, h) / pixel_scale
+                        breadth_mm = min(w, h) / pixel_scale
 
-                    
-                    # Get rectangle corners for drawing
-                    box = cv2.boxPoints(rect)
-                    box = np.int32(box)
-                    
-                    # Get the minimum area rectangle and measurements
-                    rect = cv2.minAreaRect(contour)
-                    (cx, cy), (w, h), angle = rect
-                    box = cv2.boxPoints(rect)
-                    box = np.int32(box)
-
-                    # Normalize dimensions and convert to mm
-                    if angle < -45:
-                        angle += 90
-                        w, h = h, w
-                    length_mm = max(w, h) / pixel_scale
-                    breadth_mm = min(w, h) / pixel_scale
-
-                    # Check if measurements are within tolerance
+                        # Check if measurements are within tolerance
                     in_tol = (abs(length_mm - OUT_RECT_LENGTH) <= RECT_TOL and 
                              abs(breadth_mm - OUT_RECT_BREADTH) <= RECT_TOL)
 
