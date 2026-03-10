@@ -11,7 +11,7 @@ from scipy.stats import iqr
 
 # === Load YOLO Models ===
 model_lens = YOLO("200x_lens.pt")       # For lens/circles
-# model_rectangle = YOLO("outer_rect.pt")  # For rectangles (out - segmentation model)
+model_rectangle = YOLO("outer_rect.pt")  # For rectangles (out - segmentation model)
 # model_rectangle = YOLO("40x_rectt.pt")  # For rectangles (in/out)
 model_defects = YOLO("defects.pt")      # For defect detection
 
@@ -235,9 +235,70 @@ def update_status_label(*args):
         status_text = f"Current Mode:\n{measure_type} Measurement ({zoom})"
     status_label.configure(text=status_text)
 
-# Add trace to both variables to update status
+# Trace for update status and pixel scale
 mode_var.trace_add("write", update_status_label)
 zoom_var.trace_add("write", update_status_label)
+
+# --- Pixel Scale Configuration ---
+pixel_scale_40x_var = ctk.StringVar(value=str(PIXEL_SCALES["40x"]))
+pixel_scale_200x_var = ctk.StringVar(value=str(PIXEL_SCALES["200x"]))
+
+def update_pixel_scale_from_entry():
+    """Update global PIXEL_SCALES dictionary from entry fields"""
+    try:
+        val_40x = float(pixel_scale_40x_var.get())
+        PIXEL_SCALES["40x"] = val_40x
+        
+        val_200x = float(pixel_scale_200x_var.get())
+        PIXEL_SCALES["200x"] = val_200x
+        
+        messagebox.showinfo("Success", f"Pixel scales updated:\n40x: {val_40x}\n200x: {val_200x}")
+    except ValueError:
+        messagebox.showerror("Error", "Please enter valid numeric values for pixel scales.")
+
+# Pixel Scale UI Header
+scale_label = ctk.CTkLabel(sidebar, text="Pixel to mm Scale:", font=("Arial", 18, "bold"))
+scale_label.pack(pady=(10, 5), padx=70, anchor="w")
+
+# 40x Scale Row (aligned with Confirm button)
+scale_40x_row = ctk.CTkFrame(sidebar, fg_color="transparent")
+scale_40x_row.pack(pady=(0, 10), padx=0, fill="x")
+scale_40x_label = ctk.CTkLabel(scale_40x_row, text="40x:", font=("Arial", 18), width=60, anchor="w")
+scale_40x_label.pack(side="left", padx=(65,0))
+scale_40x_entry = ctk.CTkEntry(
+    scale_40x_row,
+    textvariable=pixel_scale_40x_var,
+    width=140,
+    height=40,
+    font=("Arial", 18),
+    corner_radius=10,
+)
+scale_40x_entry.pack(side="right", padx=(0,60))
+
+# 200x Scale Row (aligned with Confirm button)
+scale_200x_row = ctk.CTkFrame(sidebar, fg_color="transparent")
+scale_200x_row.pack(pady=(0, 10), padx=0, fill="x")
+scale_200x_label = ctk.CTkLabel(scale_200x_row, text="200x:", font=("Arial", 18), width=60, anchor="w")
+scale_200x_label.pack(side="left", padx=(65,0))
+scale_200x_entry = ctk.CTkEntry(
+    scale_200x_row,
+    textvariable=pixel_scale_200x_var,
+    width=140,
+    height=40,
+    font=("Arial", 18),
+    corner_radius=10,
+)
+scale_200x_entry.pack(side="right", padx=(0,60))
+
+# Confirm Button
+confirm_scale_btn = ctk.CTkButton(sidebar, 
+                                text="Confirm Scale", 
+                                command=update_pixel_scale_from_entry,
+                                width=200,
+                                height=40,
+                                font=("Arial", 18),
+                                corner_radius=10)
+confirm_scale_btn.pack(pady=(0, 20))
 
 # Initialize status label
 update_status_label()
@@ -730,9 +791,6 @@ def run_detection():
                         (cx, cy), (w, h), angle = normalize_rect(rect)
                         
                         # Get rectangle measurements
-                        
-                        # Get the pixel scale from the constants
-                        pixel_scale = PIXEL_SCALES.get(zoom_var.get(), 120)  # 120 pixels/mm for 40x
                         
                         # Convert image dimensions back to original scale if they were resized
                         if mask_height != img_height or mask_width != img_width:
