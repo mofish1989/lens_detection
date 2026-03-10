@@ -25,15 +25,15 @@ RECT_TOL = 0.010
 TARGET_LENS_DIAMETER = 0.240
 LENS_TOL = 0.005
 
-PIXEL_SCALES = {"40x": 380, "200x": 1940}
+PIXEL_SCALES = {"40x": 388, "200x": 1940}
 
 # === Rectangle Detection Profiles for 40x ===
 PROFILES = {
-    "blue": {"outer": (10.0, 2.0, 2.0), "inner": (4.0, 1.0, 2.5), "confirm": 5, "deep_scan": 12},
-    "dark": {"outer": (25.0, 2.0, 1.2), "inner": (25.0, 2.0, 1.2), "confirm": 5, "deep_scan": 12},
-    "grey": {"outer": (3.0, 2.0, 1.5), "inner": (4.0, 2.0, 2.0), "confirm": 5, "deep_scan": 0},
-    "yellow_dark": {"outer": (5.0, 1.5, 2.0), "inner": (10.0, 2.5, 2.0), "confirm": 6, "deep_scan": 6},
-    "yellow_light": {"outer": (5.0, 1.0, 2.0), "inner": (4.0, 2.5, 2.0), "confirm": 4, "deep_scan": 6}
+    "blue": {"outer": (4.0, 1.5, 2.0), "inner": (3.0, 1.0, 2.5), "confirm": 5, "deep_scan": 12},
+    "dark": {"outer": (25.0, 2.0, 1.2), "inner": (25.0, 2.0, 1.2), "confirm": 5, "deep_scan": 0},
+    "grey": {"outer": (3.5, 2.5, 2.0), "inner": (4.0, 2.5, 2.0), "confirm": 5, "deep_scan": 6},
+    "yellow_dark": {"outer": (4.0, 1.5, 2.0), "inner": (15.0, 2.5, 2.0), "confirm": 6, "deep_scan": 3},
+    "yellow_light": {"outer": (4.0, 1.0, 2.0), "inner": (8.0, 2.5, 2.0), "confirm": 4, "deep_scan": 3}
 }
 
 def detect_profile(image):
@@ -157,15 +157,15 @@ def get_responsive_font_size(base_size, scale_factor=1.0):
 # Header with responsive font
 def update_header_font():
     """Update header font size responsively"""
-    font_size = get_responsive_font_size(22)
+    font_size = get_responsive_font_size(26)
     project_label.configure(font=("Arial", font_size, "bold"))
 
 project_label = ctk.CTkLabel(sidebar, text="Lens Quality Check", 
-                           font=("Arial", 22, "bold"),
-                           wraplength=200)
+                           font=("Arial", 26, "bold"),
+                           wraplength=1000)
 project_label.pack(pady=15)
 
-def load_logo_image(path, max_w=200, max_h=100):
+def load_logo_image(path, max_w=250, max_h=140):
     try:
         img = Image.open(path)
         img.thumbnail((max_w, max_h))
@@ -173,26 +173,31 @@ def load_logo_image(path, max_w=200, max_h=100):
     except Exception:
         return None
 
-logo1_img = load_logo_image("Screenshot 2025-07-10 150120.png")
-logo2_img = load_logo_image("sp_informal_logo_300.png")
+logo1_img = load_logo_image("lsp-logo.png")
+logo2_img = load_logo_image("sp-logo1.png")
 
 if logo1_img:
     logo1_label = ctk.CTkLabel(sidebar, image=logo1_img, text="")
-    logo1_label.pack(pady=(10,5))
+    logo1_label.pack(padx=20, pady=(16,10))
 
-collab_label = ctk.CTkLabel(sidebar, text="in collaboration with", font=("Arial", 14))
+collab_label = ctk.CTkLabel(sidebar, text="in collaboration with", font=("Arial", 18))
 collab_label.pack(pady=(5,5))
 
 if logo2_img:
     logo2_label = ctk.CTkLabel(sidebar, image=logo2_img, text="")
-    logo2_label.pack(pady=(5,20))
+    logo2_label.pack(padx=20, pady=(10,28))
 
 mode_var = ctk.StringVar(value="measurement")
-ctk.CTkLabel(sidebar, text="Mode:").pack(pady=(0,5))
+mode_label = ctk.CTkLabel(sidebar, text="Mode:", font=("Arial", 18, "bold"))
+mode_label.pack(pady=(0, 5), padx=70, anchor="w")
 # Mode selection dropdown with consistent styling
 mode_dropdown = ctk.CTkOptionMenu(sidebar, 
                                 variable=mode_var, 
                                 values=["measurement", "defect"],
+                                width=200,
+                                height=40,
+                                font=("Arial", 18),
+                                dropdown_font=("Arial", 17),
                                 corner_radius=10)  # Consistent corner radius
 mode_dropdown.pack(pady=(0,20))  # Standard vertical spacing
 
@@ -203,6 +208,10 @@ zoom_dropdown = ctk.CTkOptionMenu(sidebar,
                                 variable=zoom_var, 
                                 values=zoom_options, 
                                 command=lambda _: update_measurement_type(),
+                                width=200,
+                                height=40,
+                                font=("Arial", 18),
+                                dropdown_font=("Arial", 17),
                                 corner_radius=10)  # Consistent corner radius
 zoom_dropdown.pack(pady=(0,20))  # Standard vertical spacing
 
@@ -211,8 +220,8 @@ zoom_dropdown.pack(pady=(0,20))  # Standard vertical spacing
 status_label = ctk.CTkLabel(sidebar, 
                            text="Current Mode: Rectangle Measurement (40x)", 
                            wraplength=200,  # Standard sidebar text wrapping
-                           justify="center", 
-                           font=("Arial", 12),  # Standard status text size
+                           justify="center",  # Centered text for better aesthetics
+                           font=("Arial", 18),  # Standard status text size
                            corner_radius=10)  # Consistent corner radius
 status_label.pack(pady=(10,20))  # Standard vertical spacing
 
@@ -283,24 +292,30 @@ def show_preview_image(img):
         
         # Account for sidebar and padding
         available_width = max(window_width - 400, 400)  # Subtract sidebar + padding
-        available_height = max(window_height - 200, 300)  # Subtract header + controls
+        available_height = max(window_height - 180, 500)  # Reduced subtraction for more height
         
         return available_width, available_height
     
     available_width, available_height = get_available_preview_space()
     
-    # Calculate target dimensions while maintaining aspect ratio
-    target_width = min(available_width * 0.8, 800)  # Max 80% of available width
-    target_height = int(target_width / aspect_ratio)
+    # Calculate best-fit dimensions to ensure it fits BOTH width AND height
+    # We use a 95% margin to ensure it doesn't touch the edges
+    scale_w = (available_width * 0.95) / img_pil.width
+    scale_h = (available_height * 0.95) / img_pil.height
     
-    # Ensure height doesn't exceed available space
-    if target_height > available_height * 0.8:
-        target_height = int(available_height * 0.8)
+    # Use the minimum of both scales to ensure the image fits within BOTH dimensions
+    scale = min(scale_w, scale_h)
+    
+    target_width = int(img_pil.width * scale)
+    target_height = int(img_pil.height * scale)
+    
+    # Ensure it's not larger than the absolute available space
+    if target_width > available_width:
+        target_width = int(available_width * 0.95)
+        target_height = int(target_width / aspect_ratio)
+    if target_height > available_height:
+        target_height = int(available_height * 0.95)
         target_width = int(target_height * aspect_ratio)
-    
-    # Ensure minimum usable size
-    target_width = max(target_width, 300)
-    target_height = max(target_height, 200)
     
     img_pil = img_pil.resize((int(target_width), int(target_height)), Image.LANCZOS)
     image_preview_tk = ctk.CTkImage(light_image=img_pil, size=(int(target_width), int(target_height)))
@@ -930,20 +945,29 @@ def create_tabs():
                          segmented_button_fg_color="#e0e0e0",
                          segmented_button_selected_color="#3b8ed0",
                          segmented_button_selected_hover_color="#36719f",
-                         height=50)  # Responsive tab height
+                         height=64)  # Responsive tab height
     tabs.pack(fill="both", expand=True, padx=pad_x, pady=pad_y)
     
     # Configure responsive tab button style
-    responsive_font_size = get_responsive_font_size(14)
-    tabs._segmented_button.configure(font=("Arial", responsive_font_size, "bold"))
+    responsive_font_size = get_responsive_font_size(18)
+    tabs._segmented_button.configure(font=("Arial", responsive_font_size, "bold"), height=48)
     tabs._segmented_button.configure(corner_radius=10)
-    tabs._segmented_button.grid_configure(padx=pad_x, pady=pad_y//2)
+    tabs._segmented_button.grid_configure(padx=pad_x, pady=pad_y)
     
     # Create all tabs
     tabs.add("Upload New")
     tabs.add("Annotated Image")
     tabs.add("Results")
+
+    # This is the key line for equal sizing and centering:
+    tabs._segmented_button.grid_columnconfigure((0, 1, 2), weight=1)
     
+    tabs._segmented_button.configure(
+        font=("Arial", responsive_font_size, "bold"), 
+        height=48,
+        corner_radius=10
+    )
+
     # Configure each tab responsively
     for tab_name in ["Upload New", "Annotated Image", "Results"]:
         tab = tabs.tab(tab_name)
@@ -958,7 +982,7 @@ def create_tabs():
 
     # Responsive button sizing
     button_width = max(min(int(app.winfo_width() * 0.12), 200), 120)  # Slightly smaller for side-by-side
-    button_font_size = get_responsive_font_size(14)
+    button_font_size = get_responsive_font_size(18)
 
     # Create a frame to hold buttons side by side
     button_frame = ctk.CTkFrame(upload_content, fg_color="transparent")
@@ -969,7 +993,7 @@ def create_tabs():
                                          text="Upload Image",
                                          command=lambda: upload_image(),
                                          width=button_width,
-                                         height=40,
+                                         height=48,
                                          corner_radius=10,
                                          font=("Arial", button_font_size))
     upload_tab_upload_btn.pack(side="left", padx=(0, 10))
@@ -979,7 +1003,7 @@ def create_tabs():
                                                 text="Run Detection",
                                                 command=lambda: run_detection(),
                                                 width=button_width,
-                                                height=40,
+                                                height=48,
                                                 corner_radius=10,
                                                 font=("Arial", button_font_size))
     upload_tab_run_detection_btn.pack(side="left", padx=(10, 0))
@@ -1081,7 +1105,7 @@ def refresh_responsive_elements():
         # Update button sizes if they exist
         if upload_tab_upload_btn:
             button_width = max(min(int(app.winfo_width() * 0.12), 200), 120)  # Smaller for side-by-side
-            button_font_size = get_responsive_font_size(14)
+            button_font_size = get_responsive_font_size(18)
             upload_tab_upload_btn.configure(width=button_width, font=("Arial", button_font_size))
             upload_tab_run_detection_btn.configure(width=button_width, font=("Arial", button_font_size))
         
