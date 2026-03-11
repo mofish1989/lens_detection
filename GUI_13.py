@@ -25,12 +25,12 @@ RECT_TOL = 0.010
 TARGET_LENS_DIAMETER = 0.240
 LENS_TOL = 0.005
 
-PIXEL_SCALES = {"40x": 388, "200x": 1940}
+PIXEL_SCALES = {"40x": 387, "200x": 1940}
 
 # === Rectangle Detection Profiles for 40x ===
 PROFILES = {
-    "blue": {"outer": (4.0, 1.5, 2.0), "inner": (3.0, 1.0, 2.5), "confirm": 5, "deep_scan": 12},
-    "dark": {"outer": (25.0, 2.0, 1.2), "inner": (25.0, 2.0, 1.2), "confirm": 5, "deep_scan": 0},
+    "blue": {"outer": (4.0, 1.5, 2.0), "inner": (3.0, 1.5, 2.5), "confirm": 12, "deep_scan": 12},
+    "dark": {"outer": (30.0, 5.0, 1.2), "inner": (30.0, 2.0, 1.2), "confirm": 5, "deep_scan": 0},
     "grey": {"outer": (3.5, 2.5, 2.0), "inner": (4.0, 2.5, 2.0), "confirm": 5, "deep_scan": 6},
     "yellow_dark": {"outer": (4.0, 1.5, 2.0), "inner": (15.0, 2.5, 2.0), "confirm": 6, "deep_scan": 3},
     "yellow_light": {"outer": (4.0, 1.0, 2.0), "inner": (8.0, 2.5, 2.0), "confirm": 4, "deep_scan": 3}
