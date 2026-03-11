@@ -115,6 +115,8 @@ min_zoom = 0.1
 max_zoom = 5.0
 pan_start_x = 0
 pan_start_y = 0
+offset_x = 0
+offset_y = 0
 annotated_canvas = None
 canvas_img_id = None
 
@@ -1123,7 +1125,7 @@ def update_preview_tab():
     show_preview_image(uploaded_image)
 
 def update_annotated_tab():
-    global annotated_image_tk, zoom_level, annotated_canvas, canvas_img_id
+    global annotated_image_tk, zoom_level, annotated_canvas, canvas_img_id, offset_x, offset_y
     if annotated_image is None:
         return
     img_rgb = cv2.cvtColor(annotated_image, cv2.COLOR_BGR2RGB)
@@ -1134,7 +1136,7 @@ def update_annotated_tab():
     annotated_canvas.delete("all")
     # For Canvas widget we still need to use PhotoImage
     canvas_image = ImageTk.PhotoImage(resized_img)
-    canvas_img_id = annotated_canvas.create_image(0, 0, anchor="nw", image=canvas_image)
+    canvas_img_id = annotated_canvas.create_image(offset_x, offset_y, anchor="nw", image=canvas_image)
     annotated_canvas.image = canvas_image  # Keep a reference
     annotated_canvas.config(scrollregion=(0, 0, new_size[0], new_size[1]))
 
@@ -1178,24 +1180,35 @@ def refresh_responsive_elements():
 
 
 def on_mousewheel(event):
-    global zoom_level
-    if annotated_image is None:
-        return
-    if event.num == 4 or event.delta > 0:
-        zoom_factor = 1.1
-    elif event.num == 5 or event.delta < 0:
-        zoom_factor = 0.9
-    else:
-        return
-    new_zoom = zoom_level * zoom_factor
-    if new_zoom < min_zoom:
-        new_zoom = min_zoom
-    elif new_zoom > max_zoom:
-        new_zoom = max_zoom
-    if abs(new_zoom - zoom_level) < 0.001:
-        return
-    zoom_level = new_zoom
-    update_annotated_tab()
+        global zoom_level, offset_x, offset_y
+        if annotated_image is None:
+            return
+        # Get mouse position relative to canvas
+        mouse_x = event.x
+        mouse_y = event.y
+        # Current zoom
+        old_zoom = zoom_level
+        if event.num == 4 or event.delta > 0:
+            zoom_factor = 1.1
+        elif event.num == 5 or event.delta < 0:
+            zoom_factor = 0.9
+        else:
+            return
+        new_zoom = zoom_level * zoom_factor
+        if new_zoom < min_zoom:
+            new_zoom = min_zoom
+        elif new_zoom > max_zoom:
+            new_zoom = max_zoom
+        if abs(new_zoom - zoom_level) < 0.001:
+            return
+        # Calculate new offset so that the point under the mouse stays under the mouse after zoom
+        # (mouse_x - offset_x) / old_zoom = (mouse_x - new_offset_x) / new_zoom
+        # Solve for new_offset_x:
+        # new_offset_x = mouse_x - ((mouse_x - offset_x) * new_zoom / old_zoom)
+        offset_x = mouse_x - ((mouse_x - offset_x) * new_zoom / old_zoom)
+        offset_y = mouse_y - ((mouse_y - offset_y) * new_zoom / old_zoom)
+        zoom_level = new_zoom
+        update_annotated_tab()
 
 def on_pan_start(event):
     global pan_start_x, pan_start_y
@@ -1203,11 +1216,13 @@ def on_pan_start(event):
     pan_start_y = event.y
 
 def on_pan_move(event):
-    global pan_start_x, pan_start_y, annotated_canvas, canvas_img_id
+    global pan_start_x, pan_start_y, annotated_canvas, canvas_img_id, offset_x, offset_y
     if canvas_img_id is None:
         return
     dx = event.x - pan_start_x
     dy = event.y - pan_start_y
+    offset_x += dx
+    offset_y += dy
     annotated_canvas.move(canvas_img_id, dx, dy)
     pan_start_x = event.x
     pan_start_y = event.y
