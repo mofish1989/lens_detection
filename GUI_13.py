@@ -30,8 +30,9 @@ PIXEL_SCALES = {"40x": 387, "200x": 1940}
 # === Rectangle Detection Profiles for 40x ===
 PROFILES = {
     "blue": {"outer": (4.0, 1.5, 2.0), "inner": (3.0, 1.5, 2.5), "confirm": 12, "deep_scan": 12},
-    "dark": {"outer": (30.0, 5.0, 1.2), "inner": (30.0, 2.0, 1.2), "confirm": 5, "deep_scan": 0},
-    "grey": {"outer": (3.5, 2.5, 2.0), "inner": (4.0, 2.5, 2.0), "confirm": 5, "deep_scan": 6},
+    "dark": {"outer": (40.0, 5.0, 1.8), "inner": (12.0, 4.0, 1.2), "confirm": 5, "deep_scan": 0},
+    "grey_light": {"outer": (2.0, 1.2, 2.8), "inner": (1.2, 1.5, 2.0), "confirm": 5, "deep_scan": 3},
+    "grey_dark": {"outer": (2.5, 1.2, 2.0), "inner": (2.0, 2.0, 2.0), "confirm": 5, "deep_scan": 6},
     "yellow_dark": {"outer": (4.0, 1.5, 2.0), "inner": (15.0, 2.5, 2.0), "confirm": 6, "deep_scan": 3},
     "yellow_light": {"outer": (4.0, 1.0, 2.0), "inner": (8.0, 2.5, 2.0), "confirm": 4, "deep_scan": 3}
 }
@@ -53,19 +54,29 @@ def detect_profile(image):
     yellow_pct = np.count_nonzero(yellow_mask) / yellow_mask.size
     if yellow_pct > 0.05:
         if avg_val < 132 or avg_sat > 78:
+            print(f"Yellow Dark - Avg Saturation: {avg_sat:.2f}, Avg Value: {avg_val:.2f}, Contrast Score: {contrast_score:.2f}")
             return "yellow_dark"
         else:
+            print(f"Yellow Light - Avg Saturation: {avg_sat:.2f}, Avg Value: {avg_val:.2f}, Contrast Score: {contrast_score:.2f}")
             return "yellow_light"
 
     # 2. Identify the 'Blue' Profile (Strong Saturation)
     if avg_sat > 50:
+        print(f"Blue Profile - Avg Saturation: {avg_sat:.2f}, Avg Value: {avg_val:.2f}, Contrast Score: {contrast_score:.2f}")
         return "blue"
 
     # 3. Differentiate Dark vs Grey using Contrast
-    if contrast_score > 15.0:
+    if contrast_score >= 28.0:
+        print(f"Dark Profile - Avg Saturation: {avg_sat:.2f}, Avg Value: {avg_val:.2f}, Contrast Score: {contrast_score:.2f}")
         return "dark"
+
+    # 4. Differentiate Grey Light vs Grey Dark using Brightness
+    if avg_val >= 160:
+        print(f"Grey Light - Avg Saturation: {avg_sat:.2f}, Avg Value: {avg_val:.2f}, Contrast Score: {contrast_score:.2f}")
+        return "grey_light"
     else:
-        return "grey"
+        print(f"Grey Dark - Avg Saturation: {avg_sat:.2f}, Avg Value: {avg_val:.2f}, Contrast Score: {contrast_score:.2f}")
+        return "grey_dark"
 
 HISTORY_DIR = "history"
 os.makedirs(HISTORY_DIR, exist_ok=True)
