@@ -30,7 +30,9 @@ PIXEL_SCALES = {"40x": 387, "200x": 1940}
 # === Rectangle Detection Profiles for 40x ===
 PROFILES = {
     "blue": {"outer": (4.0, 1.5, 2.0), "inner": (3.0, 1.5, 2.5), "confirm": 12, "deep_scan": 12},
-    "dark": {"outer": (40.0, 5.0, 1.8), "inner": (12.0, 4.0, 1.2), "confirm": 5, "deep_scan": 0},
+    "dark_dark": {"outer": (30.0, 2.5, 2.0), "inner": (12.0, 4.0, 1.2), "confirm": 5, "deep_scan": 0},
+    # "dark_dark": {"outer": (40.0, 5.0, 1.8), "inner": (12.0, 4.0, 1.2), "confirm": 5, "deep_scan": 0},
+    "dark_light": {"outer": (40.0, 5.0, 1.5), "inner": (25.0, 2.0, 1.8), "confirm": 5, "deep_scan": 3},
     "grey_light": {"outer": (2.0, 1.2, 2.8), "inner": (1.2, 1.5, 2.0), "confirm": 5, "deep_scan": 3},
     "grey_dark": {"outer": (2.5, 1.2, 2.0), "inner": (2.0, 2.0, 2.0), "confirm": 5, "deep_scan": 6},
     "yellow_dark": {"outer": (4.0, 1.5, 2.0), "inner": (15.0, 2.5, 2.0), "confirm": 6, "deep_scan": 3},
@@ -65,10 +67,17 @@ def detect_profile(image):
         print(f"Blue Profile - Avg Saturation: {avg_sat:.2f}, Avg Value: {avg_val:.2f}, Contrast Score: {contrast_score:.2f}")
         return "blue"
 
-    # 3. Differentiate Dark vs Grey using Contrast
+    # 3. Differentiate Dark Dark, Dark Light vs Grey/Yellow using Contrast and Avg Value
     if contrast_score >= 28.0:
-        print(f"Dark Profile - Avg Saturation: {avg_sat:.2f}, Avg Value: {avg_val:.2f}, Contrast Score: {contrast_score:.2f}")
-        return "dark"
+        # Use Avg Value to distinguish dark_dark from dark_light based on common ranges
+        # Dark_dark typical Avg_Val: 98-140
+        # Dark_light typical Avg_Val: 197-202
+        if avg_val > 170: 
+            print(f"Dark Light Profile - Avg Saturation: {avg_sat:.2f}, Avg Value: {avg_val:.2f}, Contrast Score: {contrast_score:.2f}")
+            return "dark_light"
+        else:
+            print(f"Dark Dark Profile - Avg Saturation: {avg_sat:.2f}, Avg Value: {avg_val:.2f}, Contrast Score: {contrast_score:.2f}")
+            return "dark_dark"
 
     # 4. Differentiate Grey Light vs Grey Dark using Brightness
     if avg_val >= 160:
@@ -244,7 +253,10 @@ def update_status_label(*args):
     if mode == "defect":
         status_text = "Current Mode:\nDefect Detection"
     else:  # measurement mode
-        measure_type = "Rectangle" if zoom == "40x" else "Lens"
+        if zoom == "40x":
+            measure_type = "Rectangle & Lens"
+        else:
+            measure_type = "Lens"
         status_text = f"Current Mode:\n{measure_type} Measurement ({zoom})"
     status_label.configure(text=status_text)
 
@@ -551,7 +563,6 @@ def detect_rectangles_40x(image, pixel_scale):
             ]
             
             box = np.array(pts, np.int32)
-            cv2.polylines(output, [box.reshape((-1, 1, 2))], isClosed=True, color=cfg['color'], thickness=3)
             
             width = np.linalg.norm(np.array(pts[0]) - np.array(pts[1]))
             height = np.linalg.norm(np.array(pts[0]) - np.array(pts[3]))
@@ -574,9 +585,15 @@ def detect_rectangles_40x(image, pixel_scale):
             
             in_tol = length_tol and breadth_tol
             
-            text_pos = (pts[0][0], pts[0][1] - 20 if cfg['name'] == 'Outer' else pts[0][1] + 55)
+            # Use red if out of tolerance, green if OK
+            color = (0, 0, 255) if not in_tol else (0, 255, 0)
+            
+            text_pos = (pts[0][0], pts[0][1] - 10 if cfg['name'] == 'Outer' else pts[0][1] + 30)
             label = f"{cfg['name']}: {length_mm:.3f}x{breadth_mm:.3f}mm"
-            cv2.putText(output, label, text_pos, cv2.FONT_HERSHEY_SIMPLEX, 0.8, cfg['color'], 2)
+            
+            # Draw rectangle and text with conditional color
+            cv2.polylines(output, [box.reshape((-1, 1, 2))], isClosed=True, color=color, thickness=3)
+            cv2.putText(output, label, text_pos, cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
             
             results.append({
                 'name': cfg['name'],
@@ -673,9 +690,10 @@ def run_detection():
         elif measure_type == "rectangle":
             zoom = zoom_var.get()
             if zoom == "40x":
-                # Use edge detection method for 40x
+                # Use edge detection method for 40x rectangles
                 annotated, rect_results = detect_rectangles_40x(uploaded_image, pixel_scale)
                 
+                results_text.append("=== Rectangle Measurements ===")
                 for result in rect_results:
                     if 'error' in result:
                         results_text.append(f"{result['name']} Rectangle: {result['error']}")
@@ -686,6 +704,55 @@ def run_detection():
                             results_text.append(f"  Length out of tolerance: {result['length_mm']:.3f}mm")
                         if not result['breadth_ok']:
                             results_text.append(f"  Breadth out of tolerance: {result['breadth_mm']:.3f}mm")
+
+                # --- Also detect lenses at 40x using 200x_lens.pt model ---
+                results_text.append("")
+                results_text.append("=== Lens Measurements (40x) ===")
+                res_lens = model_lens(uploaded_image)[0]
+                circles = []
+                for box, cls in zip(res_lens.boxes.xyxy.cpu().numpy(), res_lens.boxes.cls.cpu().numpy()):
+                    x1, y1, x2, y2 = map(int, box)
+                    label = res_lens.names[int(cls)].lower()
+                    if label != "lens":
+                        continue
+                    w, h = x2 - x1, y2 - y1
+                    center_x, center_y = (x1 + x2) // 2, (y1 + y2) // 2
+                    diameter_px = w
+                    # Use 40x pixel scale for diameter calculation
+                    diameter_mm = diameter_px / pixel_scale
+                    in_tol = abs(diameter_mm - TARGET_LENS_DIAMETER) <= LENS_TOL
+                    color = (0, 255, 0) if in_tol else (0, 0, 255)
+                    cv2.rectangle(annotated, (x1, y1), (x2, y2), color, 2)
+                    circles.append((center_x, center_y, diameter_mm, in_tol, (x1, y1, x2, y2)))
+
+                circles.sort(key=lambda c: c[0])
+                for idx, (cx, cy, d_mm, in_tol, (x1, y1, x2, y2)) in enumerate(circles, start=1):
+                    label_text = f"Lens {idx}"
+                    label_x = int((x1 + x2) // 2) - 15
+                    label_y = int(y1) - 8
+                    cv2.putText(annotated, label_text, (label_x, label_y),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 0), 1)
+                    diam_x = int(x1) + 3
+                    diam_y = int(y2) + 15
+                    diam_text = f"Dia: {d_mm:.3f}mm"
+                    diam_color = (0, 0, 255) if not in_tol else (0, 128, 0)
+                    cv2.putText(annotated, diam_text, (diam_x, diam_y),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.4, diam_color, 1)
+                    results_text.append(f"Lens {idx} Diameter: {d_mm:.3f}mm {'OK' if in_tol else 'Out of Tolerance'}")
+
+                # Lens-to-lens distances
+                for i in range(len(circles) - 1):
+                    c1 = circles[i]
+                    c2 = circles[i + 1]
+                    dist_mm = abs(c2[0] - c1[0]) / pixel_scale
+                    results_text.append(f"Center-to-center distance Lens {i+1} to Lens {i+2}: {dist_mm:.3f}mm")
+
+                if len(circles) > 1:
+                    total_dist_mm = abs(circles[-1][0] - circles[0][0]) / pixel_scale
+                    results_text.append(f"Center-to-center distance Lens 1 to Lens {len(circles)}: {total_dist_mm:.3f}mm")
+
+                if not circles:
+                    results_text.append("No lenses detected at 40x.")
             else:
                 # Use YOLO segmentation method for 200x
                 # Run detection and get results with confidence threshold
