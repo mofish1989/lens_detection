@@ -523,7 +523,7 @@ def detect_rectangles_40x(image, pixel_scale):
             ransac = RANSACRegressor(residual_threshold=3.0)
             ransac.fit(indep, dep)
             return [ransac.estimator_.coef_[0], ransac.estimator_.intercept_]
-        except:
+        except Exception:
             return None
     
     def draw_infinite_line(line, is_vertical, color):
