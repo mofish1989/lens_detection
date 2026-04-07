@@ -429,6 +429,9 @@ class LensQCApp:
         self.upload_tab_run_detection_btn = None
         self.preview_img_label = None
 
+        self._resize_after_id = None
+        self._last_window_size = (0, 0)
+
         # --- Build UI ---
         self._set_responsive_geometry()
         self.app.title("Lens Quality Check")
@@ -945,10 +948,20 @@ class LensQCApp:
             self._show_preview_image(self.uploaded_image)
 
     def _on_window_resize(self, event=None):
-        if event and event.widget == self.app:
-            new_sidebar_width = self._get_responsive_sidebar_width()
-            self.sidebar.configure(width=new_sidebar_width)
-            self.app.after_idle(self._refresh_responsive_elements)
+        if not event or event.widget != self.app:
+            return
+        new_size = (event.width, event.height)
+        if new_size == self._last_window_size:
+            return
+        self._last_window_size = new_size
+        if self._resize_after_id is not None:
+            self.app.after_cancel(self._resize_after_id)
+        self._resize_after_id = self.app.after(200, self._apply_resize)
+
+    def _apply_resize(self):
+        self._resize_after_id = None
+        self.sidebar.configure(width=self._get_responsive_sidebar_width())
+        self._refresh_responsive_elements()
 
     # === Zoom & Pan ===
 
