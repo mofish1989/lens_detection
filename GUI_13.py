@@ -28,6 +28,29 @@ LENS_TOL = 0.005
 
 PIXEL_SCALES = {"40x": 387, "80x": 776, "200x": 1940}
 
+# === Annotation Colors (BGR) ===
+COLOR_OK = (0, 255, 0)           # Green – within tolerance
+COLOR_FAIL = (0, 0, 255)        # Red – out of tolerance / defect
+COLOR_OK_DARK = (0, 128, 0)     # Dark green – diameter text OK
+COLOR_LABEL = (0, 0, 0)         # Black – lens label text
+COLOR_OUTER_RECT = (0, 200, 0)  # Green – outer rectangle edges
+COLOR_INNER_RECT = (200, 0, 180)  # Magenta – inner rectangle edges
+
+# === Annotation Parameters Per Zoom / Mode ===
+FONT_SCALE_200X = 2.0
+THICKNESS_200X = 4
+FONT_SCALE_40X = 0.4
+THICKNESS_40X = 1
+FONT_SCALE_RECT = 0.6
+THICKNESS_RECT = 2
+THICKNESS_RECT_POLY = 3
+FONT_SCALE_DEFECT = 0.5
+THICKNESS_DEFECT = 2
+
+# === Overlay / Threshold ===
+DEFECT_OVERLAY_ALPHA = 0.3
+MASK_THRESHOLD = 0.5
+
 # === Rectangle Detection Profiles for 40x ===
 PROFILES = {
     "blue": {"outer": (4.0, 1.5, 2.0), "inner": (3.0, 1.5, 2.5), "confirm": 12, "deep_scan": 12},
@@ -217,22 +240,22 @@ def detect_rectangles_40x(image, pixel_scale):
     rect_configs = [
         {
             'name': 'Outer',
-            'color': (0, 200, 0),  # Green
-            'points': {
-                'top':    get_raw_points(outer_v_range_top, thresh_outer, 'y', 'inward', 'low',  bg_avg_outer, (0, 200, 0)),
-                'bottom': get_raw_points(outer_v_range,     thresh_outer, 'y', 'inward', 'high', bg_avg_outer, (0, 200, 0)),
-                'left':   get_raw_points(outer_h_range,     thresh_outer, 'x', 'inward', 'low',  bg_avg_outer, (0, 200, 0)),
-                'right':  get_raw_points(outer_h_range,     thresh_outer, 'x', 'inward', 'high', bg_avg_outer, (0, 200, 0))
+            'color': COLOR_OUTER_RECT,
+            'edges': {
+                'top':    get_raw_points(outer_v_range_top, thresh_outer, 'y', 'inward', 'low',  bg_avg_outer, COLOR_OUTER_RECT),
+                'bottom': get_raw_points(outer_v_range,     thresh_outer, 'y', 'inward', 'high', bg_avg_outer, COLOR_OUTER_RECT),
+                'left':   get_raw_points(outer_h_range,     thresh_outer, 'x', 'inward', 'low',  bg_avg_outer, COLOR_OUTER_RECT),
+                'right':  get_raw_points(outer_h_range,     thresh_outer, 'x', 'inward', 'high', bg_avg_outer, COLOR_OUTER_RECT)
             }
         },
         {
             'name': 'Inner',
-            'color': (200, 0, 180),  # Magenta
-            'points': {
-                'top':    get_raw_points(inner_v_range, thresh_inner, 'y', 'outward', 'low',  bg_avg_inner, (200, 0, 180)),
-                'bottom': get_raw_points(inner_v_range, thresh_inner, 'y', 'outward', 'high', bg_avg_inner, (200, 0, 180)),
-                'left':   get_raw_points(inner_h_range, thresh_inner, 'x', 'outward', 'low',  bg_avg_inner, (200, 0, 180)),
-                'right':  get_raw_points(inner_h_range, thresh_inner, 'x', 'outward', 'high', bg_avg_inner, (200, 0, 180))
+            'color': COLOR_INNER_RECT,
+            'edges': {
+                'top':    get_raw_points(inner_v_range, thresh_inner, 'y', 'outward', 'low',  bg_avg_inner, COLOR_INNER_RECT),
+                'bottom': get_raw_points(inner_v_range, thresh_inner, 'y', 'outward', 'high', bg_avg_inner, COLOR_INNER_RECT),
+                'left':   get_raw_points(inner_h_range, thresh_inner, 'x', 'outward', 'low',  bg_avg_inner, COLOR_INNER_RECT),
+                'right':  get_raw_points(inner_h_range, thresh_inner, 'x', 'outward', 'high', bg_avg_inner, COLOR_INNER_RECT)
             }
         }
     ]
@@ -240,7 +263,7 @@ def detect_rectangles_40x(image, pixel_scale):
     results = []
     
     for cfg in rect_configs:
-        lines = {k: fit_line_ransac(cfg['points'][k]) for k in cfg['points']}
+        lines = {k: fit_line_ransac(cfg['edges'][k]) for k in cfg['edges']}
         
         if all(L is not None for L in lines.values()):
             for k in lines:
@@ -277,14 +300,14 @@ def detect_rectangles_40x(image, pixel_scale):
             in_tol = length_tol and breadth_tol
             
             # Use red if out of tolerance, green if OK
-            color = (0, 0, 255) if not in_tol else (0, 255, 0)
+            color = COLOR_FAIL if not in_tol else COLOR_OK
             
             text_pos = (pts[0][0], pts[0][1] - 10 if cfg['name'] == 'Outer' else pts[0][1] + 30)
             label = f"{cfg['name']}: {length_mm:.3f}x{breadth_mm:.3f}mm"
             
             # Draw rectangle and text with conditional color
-            cv2.polylines(output, [box.reshape((-1, 1, 2))], isClosed=True, color=color, thickness=3)
-            cv2.putText(output, label, text_pos, cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+            cv2.polylines(output, [box.reshape((-1, 1, 2))], isClosed=True, color=color, thickness=THICKNESS_RECT_POLY)
+            cv2.putText(output, label, text_pos, cv2.FONT_HERSHEY_SIMPLEX, FONT_SCALE_RECT, color, THICKNESS_RECT)
             
             results.append({
                 'name': cfg['name'],
@@ -302,7 +325,7 @@ def detect_rectangles_40x(image, pixel_scale):
     
     return output, results
 
-def detect_and_annotate_lenses(image, annotated, pixel_scale, label_filter, font_scale=0.4, thickness=1):
+def detect_and_annotate_lenses(image, annotated, pixel_scale, label_filter, font_scale=FONT_SCALE_40X, thickness=THICKNESS_40X):
     """
     Detect lenses using YOLO model, annotate the image, and return results.
     
@@ -331,28 +354,28 @@ def detect_and_annotate_lenses(image, annotated, pixel_scale, label_filter, font
         diameter_px = (w + h) / 2
         diameter_mm = diameter_px / pixel_scale
         in_tol = abs(diameter_mm - TARGET_LENS_DIAMETER) <= LENS_TOL
-        color = (0, 255, 0) if in_tol else (0, 0, 255)
+        color = COLOR_OK if in_tol else COLOR_FAIL
         cv2.rectangle(annotated, (x1, y1), (x2, y2), color, 2)
         circles.append((center_x, center_y, diameter_mm, in_tol, (x1, y1, x2, y2)))
 
     circles.sort(key=lambda c: c[0])
 
     # Label offset scales relative to font_scale
-    label_offset_x = int(30 * font_scale / 0.4)
-    label_offset_y = int(20 * font_scale / 0.4)
-    diam_offset_y = int(15 * font_scale / 0.4)
+    label_offset_x = int(30 * font_scale / FONT_SCALE_40X)
+    label_offset_y = int(20 * font_scale / FONT_SCALE_40X)
+    diam_offset_y = int(15 * font_scale / FONT_SCALE_40X)
 
     for idx, (cx, cy, d_mm, in_tol, (x1, y1, x2, y2)) in enumerate(circles, start=1):
         label_text = f"Lens {idx}"
         lx = int((x1 + x2) // 2) - label_offset_x
         ly = int(y1) - label_offset_y
         cv2.putText(annotated, label_text, (lx, ly),
-                    cv2.FONT_HERSHEY_SIMPLEX, font_scale, (0, 0, 0), thickness)
+                    cv2.FONT_HERSHEY_SIMPLEX, font_scale, COLOR_LABEL, thickness)
 
         diam_x = int(x1) + 3
         diam_y = int(y2) + diam_offset_y
         diam_text = f"Dia: {d_mm:.3f}mm"
-        diam_color = (0, 0, 255) if not in_tol else (0, 128, 0)
+        diam_color = COLOR_FAIL if not in_tol else COLOR_OK_DARK
         cv2.putText(annotated, diam_text, (diam_x, diam_y),
                     cv2.FONT_HERSHEY_SIMPLEX, font_scale, diam_color, thickness)
         results_text.append(f"Lens {idx} Diameter: {d_mm:.3f}mm {'OK' if in_tol else 'Out of Tolerance'}")
@@ -646,7 +669,7 @@ class LensQCApp:
                 # 200x lens measurement
                 annotated, lens_results = detect_and_annotate_lenses(
                     self.uploaded_image, annotated, pixel_scale,
-                    label_filter=["lens", "circle"], font_scale=2.0, thickness=4)
+                    label_filter=["lens", "circle"], font_scale=FONT_SCALE_200X, thickness=THICKNESS_200X)
                 results_text.extend(lens_results)
 
             # --- Rectangle Measurement Logic ---
@@ -671,7 +694,7 @@ class LensQCApp:
                 results_text.append("=== Lens Measurements ===")
                 annotated, lens_results = detect_and_annotate_lenses(
                     self.uploaded_image, annotated, pixel_scale,
-                    label_filter=["circle"], font_scale=0.4, thickness=1)
+                    label_filter=["circle"], font_scale=FONT_SCALE_40X, thickness=THICKNESS_40X)
                 results_text.extend(lens_results)
 
         # --- Defect Logic (Segmentation) ---
@@ -694,24 +717,24 @@ class LensQCApp:
                     mask_h, mask_w = mask.shape
                     if mask_h != img_height or mask_w != img_width:
                         mask = cv2.resize(mask, (img_width, img_height))
-                    binary_mask = (mask > 0.5).astype(np.uint8) * 255
+                    binary_mask = (mask > MASK_THRESHOLD).astype(np.uint8) * 255
                     contours, _ = cv2.findContours(binary_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
                     # Semi-transparent red overlay for the mask region
                     overlay = annotated.copy()
-                    cv2.fillPoly(overlay, contours, (0, 0, 255))
-                    cv2.addWeighted(overlay, 0.3, annotated, 0.7, 0, annotated)
+                    cv2.fillPoly(overlay, contours, COLOR_FAIL)
+                    cv2.addWeighted(overlay, DEFECT_OVERLAY_ALPHA, annotated, 1 - DEFECT_OVERLAY_ALPHA, 0, annotated)
 
                     # Draw contour outline
-                    cv2.drawContours(annotated, contours, -1, (0, 0, 255), 2)
+                    cv2.drawContours(annotated, contours, -1, COLOR_FAIL, THICKNESS_DEFECT)
                 else:
                     # Fallback to bounding box if no mask
-                    cv2.rectangle(annotated, (x1, y1), (x2, y2), (0, 0, 255), 2)
+                    cv2.rectangle(annotated, (x1, y1), (x2, y2), COLOR_FAIL, THICKNESS_DEFECT)
 
                 # Label with class name and confidence
                 label = f"{class_name} {conf:.2f}"
                 cv2.putText(annotated, label, (x1, max(20, y1 - 8)),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
+                            cv2.FONT_HERSHEY_SIMPLEX, FONT_SCALE_DEFECT, COLOR_FAIL, THICKNESS_DEFECT)
                 results_text.append(f"Defect {defect_count}: {class_name} (conf={conf:.2f}) at ({x1},{y1}) ({x2},{y2})")
 
             if defect_count == 0:
