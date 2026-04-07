@@ -26,7 +26,7 @@ RECT_TOL = 0.010
 TARGET_LENS_DIAMETER = 0.240
 LENS_TOL = 0.005
 
-PIXEL_SCALES = {"40x": 387, "200x": 1940}
+PIXEL_SCALES = {"40x": 387, "80x": 776, "200x": 1940}
 
 # === Rectangle Detection Profiles for 40x ===
 PROFILES = {
@@ -226,7 +226,7 @@ mode_dropdown.pack(pady=(0,20))  # Standard vertical spacing
 
 # Zoom level selection with consistent styling
 zoom_var = ctk.StringVar(value="40x")
-zoom_options = ["40x", "200x"]
+zoom_options = ["40x", "80x", "200x"]
 zoom_dropdown = ctk.CTkOptionMenu(sidebar, 
                                 variable=zoom_var, 
                                 values=zoom_options, 
@@ -254,7 +254,7 @@ def update_status_label(*args):
     if mode == "defect":
         status_text = "Current Mode:\nDefect Detection"
     else:  # measurement mode
-        if zoom == "40x":
+        if zoom in ("40x", "80x"):
             measure_type = "Rectangle & Lens"
         else:
             measure_type = "Lens"
@@ -267,6 +267,7 @@ zoom_var.trace_add("write", update_status_label)
 
 # --- Pixel Scale Configuration ---
 pixel_scale_40x_var = ctk.StringVar(value=str(PIXEL_SCALES["40x"]))
+pixel_scale_80x_var = ctk.StringVar(value=str(PIXEL_SCALES["80x"]))
 pixel_scale_200x_var = ctk.StringVar(value=str(PIXEL_SCALES["200x"]))
 
 def update_pixel_scale_from_entry():
@@ -275,10 +276,13 @@ def update_pixel_scale_from_entry():
         val_40x = float(pixel_scale_40x_var.get())
         PIXEL_SCALES["40x"] = val_40x
         
+        val_80x = float(pixel_scale_80x_var.get())
+        PIXEL_SCALES["80x"] = val_80x
+        
         val_200x = float(pixel_scale_200x_var.get())
         PIXEL_SCALES["200x"] = val_200x
         
-        messagebox.showinfo("Success", f"Pixel scales updated:\n40x: {val_40x}\n200x: {val_200x}")
+        messagebox.showinfo("Success", f"Pixel scales updated:\n40x: {val_40x}\n80x: {val_80x}\n200x: {val_200x}")
     except ValueError:
         messagebox.showerror("Error", "Please enter valid numeric values for pixel scales.")
 
@@ -300,6 +304,21 @@ scale_40x_entry = ctk.CTkEntry(
     corner_radius=10,
 )
 scale_40x_entry.pack(side="right", padx=(0,60))
+
+# 80x Scale Row (aligned with Confirm button)
+scale_80x_row = ctk.CTkFrame(sidebar, fg_color="transparent")
+scale_80x_row.pack(pady=(0, 10), padx=0, fill="x")
+scale_80x_label = ctk.CTkLabel(scale_80x_row, text="80x:", font=("Arial", 18), width=60, anchor="w")
+scale_80x_label.pack(side="left", padx=(65,0))
+scale_80x_entry = ctk.CTkEntry(
+    scale_80x_row,
+    textvariable=pixel_scale_80x_var,
+    width=140,
+    height=40,
+    font=("Arial", 18),
+    corner_radius=10,
+)
+scale_80x_entry.pack(side="right", padx=(0,60))
 
 # 200x Scale Row (aligned with Confirm button)
 scale_200x_row = ctk.CTkFrame(sidebar, fg_color="transparent")
@@ -339,7 +358,7 @@ content_frame.pack(fill="both", expand=True, padx=10, pady=10)
 # Auto-update measurement type based on zoom level
 def update_measurement_type():
     global measure_type
-    if zoom_var.get() == "40x":
+    if zoom_var.get() in ("40x", "80x"):
         measure_type = "rectangle"
     else:
         measure_type = "lens"
@@ -809,10 +828,12 @@ def run_detection():
         measurements_dir = os.path.join(HISTORY_DIR, "measurements")
         defects_dir = os.path.join(HISTORY_DIR, "defects")
         meas_40x_dir = os.path.join(measurements_dir, "40x")
+        meas_80x_dir = os.path.join(measurements_dir, "80x")
         meas_200x_dir = os.path.join(measurements_dir, "200x")
         os.makedirs(measurements_dir, exist_ok=True)
         os.makedirs(defects_dir, exist_ok=True)
         os.makedirs(meas_40x_dir, exist_ok=True)
+        os.makedirs(meas_80x_dir, exist_ok=True)
         os.makedirs(meas_200x_dir, exist_ok=True)
 
         if mode == "defect":
@@ -822,6 +843,9 @@ def run_detection():
             if zoom_var.get() == "40x":
                 save_path = os.path.join(meas_40x_dir, f"{base_name}_annotated_{timestamp}.png")
                 txt_path = os.path.join(meas_40x_dir, f"{base_name}_annotated_{timestamp}.txt")
+            elif zoom_var.get() == "80x":
+                save_path = os.path.join(meas_80x_dir, f"{base_name}_annotated_{timestamp}.png")
+                txt_path = os.path.join(meas_80x_dir, f"{base_name}_annotated_{timestamp}.txt")
             else:
                 save_path = os.path.join(meas_200x_dir, f"{base_name}_annotated_{timestamp}.png")
                 txt_path = os.path.join(meas_200x_dir, f"{base_name}_annotated_{timestamp}.txt")
