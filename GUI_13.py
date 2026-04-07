@@ -632,6 +632,77 @@ def detect_rectangles_40x(image, pixel_scale):
     
     return output, results
 
+def detect_and_annotate_lenses(image, annotated, pixel_scale, label_filter, font_scale=0.4, thickness=1):
+    """
+    Detect lenses using YOLO model, annotate the image, and return results.
+    
+    Args:
+        image: Original BGR image for model inference.
+        annotated: Image to draw annotations on (may already have rectangle annotations).
+        pixel_scale: Pixels per mm for the current zoom level.
+        label_filter: List of class name strings to accept (e.g. ["lens", "circle"]).
+        font_scale: OpenCV font scale for annotations.
+        thickness: OpenCV text/line thickness for annotations.
+    
+    Returns:
+        (annotated, results_text): Annotated image and list of result strings.
+    """
+    res_lens = model_lens(image)[0]
+    results_text = []
+    circles = []
+
+    for box, cls in zip(res_lens.boxes.xyxy.cpu().numpy(), res_lens.boxes.cls.cpu().numpy()):
+        x1, y1, x2, y2 = map(int, box)
+        label = res_lens.names[int(cls)].lower()
+        if label not in label_filter:
+            continue
+        w, h = x2 - x1, y2 - y1
+        center_x, center_y = (x1 + x2) // 2, (y1 + y2) // 2
+        diameter_px = (w + h) / 2
+        diameter_mm = diameter_px / pixel_scale
+        in_tol = abs(diameter_mm - TARGET_LENS_DIAMETER) <= LENS_TOL
+        color = (0, 255, 0) if in_tol else (0, 0, 255)
+        cv2.rectangle(annotated, (x1, y1), (x2, y2), color, 2)
+        circles.append((center_x, center_y, diameter_mm, in_tol, (x1, y1, x2, y2)))
+
+    circles.sort(key=lambda c: c[0])
+
+    # Label offset scales relative to font_scale
+    label_offset_x = int(30 * font_scale / 0.4)
+    label_offset_y = int(20 * font_scale / 0.4)
+    diam_offset_y = int(15 * font_scale / 0.4)
+
+    for idx, (cx, cy, d_mm, in_tol, (x1, y1, x2, y2)) in enumerate(circles, start=1):
+        label_text = f"Lens {idx}"
+        lx = int((x1 + x2) // 2) - label_offset_x
+        ly = int(y1) - label_offset_y
+        cv2.putText(annotated, label_text, (lx, ly),
+                    cv2.FONT_HERSHEY_SIMPLEX, font_scale, (0, 0, 0), thickness)
+
+        diam_x = int(x1) + 3
+        diam_y = int(y2) + diam_offset_y
+        diam_text = f"Dia: {d_mm:.3f}mm"
+        diam_color = (0, 0, 255) if not in_tol else (0, 128, 0)
+        cv2.putText(annotated, diam_text, (diam_x, diam_y),
+                    cv2.FONT_HERSHEY_SIMPLEX, font_scale, diam_color, thickness)
+        results_text.append(f"Lens {idx} Diameter: {d_mm:.3f}mm {'OK' if in_tol else 'Out of Tolerance'}")
+
+    # Lens-to-lens distances
+    for i in range(len(circles) - 1):
+        c1 = circles[i]
+        c2 = circles[i + 1]
+        dist_mm = abs(c2[0] - c1[0]) / pixel_scale
+        results_text.append(f"Center-to-center distance Lens {i+1} to Lens {i+2}: {dist_mm:.3f}mm")
+
+    if len(circles) > 1:
+        total_dist_mm = abs(circles[-1][0] - circles[0][0]) / pixel_scale
+        results_text.append(f"Center-to-center distance Lens 1 to Lens {len(circles)}: {total_dist_mm:.3f}mm")
+
+    if not circles:
+        results_text.append("No lenses detected.")
+
+    return annotated, results_text
+
 def run_detection():
     global annotated_image, annotated_image_tk, results_lines, tabs_created, tabs, zoom_level
 
@@ -648,65 +719,11 @@ def run_detection():
     # --- Measurement Logic ---
     if mode == "measurement":
         if measure_type == "lens":
-            # Lens measurement logic (unchanged)
-            res_lens = model_lens(uploaded_image)[0]
-            circles = []
-            for box, cls in zip(res_lens.boxes.xyxy.cpu().numpy(), res_lens.boxes.cls.cpu().numpy()):
-                x1, y1, x2, y2 = map(int, box)
-                label = res_lens.names[int(cls)].lower()
-                print(model_lens.names)
-                if label != "lens" and label != "circle":
-                    continue
-                w, h = x2 - x1, y2 - y1
-                center_x, center_y = (x1 + x2)//2, (y1 + y2)//2
-                diameter_px = w
-                diameter_mm = diameter_px / pixel_scale
-                in_tol = abs(diameter_mm - TARGET_LENS_DIAMETER) <= LENS_TOL
-                color = (0, 255, 0) if in_tol else (0, 0, 255)  # Green if in tol else Red
-                cv2.rectangle(annotated, (x1, y1), (x2, y2), color, 2)
-                circles.append((center_x, center_y, diameter_mm, in_tol))
-
-            circles.sort(key=lambda c: c[0])
-            for idx, (cx, cy, d_mm, in_tol) in enumerate(circles, start=1):
-                label = f"Lens {idx}"
-                # Find the top of the box for label placement
-                # Find the corresponding box for this lens
-                box = None
-                for box_candidate, cls in zip(res_lens.boxes.xyxy.cpu().numpy(), res_lens.boxes.cls.cpu().numpy()):
-                    x1, y1, x2, y2 = map(int, box_candidate)
-                    label_candidate = res_lens.names[int(cls)].lower()
-                    center_x, center_y = (x1 + x2)//2, (y1 + y2)//2
-                    if label_candidate == "lens" and abs(center_x - cx) < 5 and abs(center_y - cy) < 5:
-                        box = (x1, y1, x2, y2)
-                        break
-                if box:
-                    label_x = int((box[0] + box[2]) // 2) - 30
-                    label_y = int(box[1]) - 20
-                else:
-                    label_x = cx - 30
-                    label_y = cy - 30
-                cv2.putText(annotated, label, (label_x, label_y), cv2.FONT_HERSHEY_SIMPLEX, 2.0, (0,0,0), 5)
-                # Annotate diameter below the box
-                if box:
-                    diam_x = int(box[0]) + 10  # Start from left edge, with small padding
-                    diam_y = int(box[3]) + 80  # Lower, so it doesn't overlap with box edge
-                else:
-                    diam_x = cx - 60
-                    diam_y = cy + 80
-                diam_text = f"Dia: {d_mm:.3f}mm"
-                cv2.putText(annotated, diam_text, (diam_x, diam_y), cv2.FONT_HERSHEY_SIMPLEX, 2.0, (0,0,255) if not in_tol else (0,128,0), 4)
-                results_text.append(f"{label} Diameter: {d_mm:.3f}mm {'OK' if in_tol else 'Out of Tolerance'}")
-
-            # Calculate lens-to-lens distances and record in text output only (no image annotation)
-            for i in range(len(circles) - 1):
-                c1 = circles[i]
-                c2 = circles[i+1]
-                dist_mm = abs(c2[0] - c1[0]) / pixel_scale
-                results_text.append(f"Center-to-center distance Lens {i+1} to Lens {i+2}: {dist_mm:.3f}mm")
-
-            if len(circles) > 1:
-                total_dist_mm = abs(circles[-1][0] - circles[0][0]) / pixel_scale
-                results_text.append(f"Center-to-center distance Lens 1 to Lens {len(circles)}: {total_dist_mm:.3f}mm")
+            # 200x lens measurement
+            annotated, lens_results = detect_and_annotate_lenses(
+                uploaded_image, annotated, pixel_scale,
+                label_filter=["lens", "circle"], font_scale=2.0, thickness=4)
+            results_text.extend(lens_results)
         
         # --- Rectangle Measurement Logic ---
         elif measure_type == "rectangle":
@@ -728,50 +745,10 @@ def run_detection():
             # --- Also detect lenses using circle model ---
             results_text.append("")
             results_text.append("=== Lens Measurements ===")
-            res_lens = model_lens(uploaded_image)[0]
-            circles = []
-            for box, cls in zip(res_lens.boxes.xyxy.cpu().numpy(), res_lens.boxes.cls.cpu().numpy()):
-                x1, y1, x2, y2 = map(int, box)
-                label = res_lens.names[int(cls)].lower()
-                if label != "circle":
-                    continue
-                w, h = x2 - x1, y2 - y1
-                center_x, center_y = (x1 + x2) // 2, (y1 + y2) // 2
-                diameter_px = (w + h) / 2
-                diameter_mm = diameter_px / pixel_scale
-                in_tol = abs(diameter_mm - TARGET_LENS_DIAMETER) <= LENS_TOL
-                color = (0, 255, 0) if in_tol else (0, 0, 255)
-                cv2.rectangle(annotated, (x1, y1), (x2, y2), color, 2)
-                circles.append((center_x, center_y, diameter_mm, in_tol, (x1, y1, x2, y2)))
-
-            circles.sort(key=lambda c: c[0])
-            for idx, (cx, cy, d_mm, in_tol, (x1, y1, x2, y2)) in enumerate(circles, start=1):
-                label_text = f"Lens {idx}"
-                label_x = int((x1 + x2) // 2) - 15
-                label_y = int(y1) - 8
-                cv2.putText(annotated, label_text, (label_x, label_y),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 0), 1)
-                diam_x = int(x1) + 3
-                diam_y = int(y2) + 15
-                diam_text = f"Dia: {d_mm:.3f}mm"
-                diam_color = (0, 0, 255) if not in_tol else (0, 128, 0)
-                cv2.putText(annotated, diam_text, (diam_x, diam_y),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.4, diam_color, 1)
-                results_text.append(f"Lens {idx} Diameter: {d_mm:.3f}mm {'OK' if in_tol else 'Out of Tolerance'}")
-
-            # Lens-to-lens distances
-            for i in range(len(circles) - 1):
-                c1 = circles[i]
-                c2 = circles[i + 1]
-                dist_mm = abs(c2[0] - c1[0]) / pixel_scale
-                results_text.append(f"Center-to-center distance Lens {i+1} to Lens {i+2}: {dist_mm:.3f}mm")
-
-            if len(circles) > 1:
-                total_dist_mm = abs(circles[-1][0] - circles[0][0]) / pixel_scale
-                results_text.append(f"Center-to-center distance Lens 1 to Lens {len(circles)}: {total_dist_mm:.3f}mm")
-
-            if not circles:
-                results_text.append("No lenses detected.")
+            annotated, lens_results = detect_and_annotate_lenses(
+                uploaded_image, annotated, pixel_scale,
+                label_filter=["circle"], font_scale=0.4, thickness=1)
+            results_text.extend(lens_results)
 
     # --- Defect Logic (Segmentation) ---
     elif mode=="defect":
