@@ -753,13 +753,50 @@ def run_detection():
             if not circles:
                 results_text.append("No lenses detected.")
 
-    # --- Defect Logic ---
+    # --- Defect Logic (Segmentation) ---
     elif mode=="defect":
         res_def = model_defects(uploaded_image)[0]
-        for box in res_def.boxes.xyxy.cpu().numpy():
-            x1,y1,x2,y2=map(int,box)
-            cv2.rectangle(annotated,(x1,y1),(x2,y2),(0,0,255),2)
-            results_text.append(f"Defect Box: ({x1},{y1}) ({x2},{y2})")
+        img_height, img_width = uploaded_image.shape[:2]
+        defect_count = 0
+
+        for i, (box, cls, conf) in enumerate(zip(
+                res_def.boxes.xyxy.cpu().numpy(),
+                res_def.boxes.cls.cpu().numpy(),
+                res_def.boxes.conf.cpu().numpy())):
+            x1, y1, x2, y2 = map(int, box)
+            class_name = res_def.names[int(cls)]
+            defect_count += 1
+
+            # Draw segmentation mask if available
+            if hasattr(res_def, 'masks') and res_def.masks is not None and i < len(res_def.masks.data):
+                mask = res_def.masks.data[i].cpu().numpy()
+                mask_h, mask_w = mask.shape
+                if mask_h != img_height or mask_w != img_width:
+                    mask = cv2.resize(mask, (img_width, img_height))
+                binary_mask = (mask > 0.5).astype(np.uint8) * 255
+                contours, _ = cv2.findContours(binary_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+                # Semi-transparent red overlay for the mask region
+                overlay = annotated.copy()
+                cv2.fillPoly(overlay, contours, (0, 0, 255))
+                cv2.addWeighted(overlay, 0.3, annotated, 0.7, 0, annotated)
+
+                # Draw contour outline
+                cv2.drawContours(annotated, contours, -1, (0, 0, 255), 2)
+            else:
+                # Fallback to bounding box if no mask
+                cv2.rectangle(annotated, (x1, y1), (x2, y2), (0, 0, 255), 2)
+
+            # Label with class name and confidence
+            label = f"{class_name} {conf:.2f}"
+            cv2.putText(annotated, label, (x1, max(20, y1 - 8)),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
+            results_text.append(f"Defect {defect_count}: {class_name} (conf={conf:.2f}) at ({x1},{y1}) ({x2},{y2})")
+
+        if defect_count == 0:
+            results_text.append("No defects detected.")
+        else:
+            results_text.insert(0, f"Total defects found: {defect_count}")
 
     annotated_image = annotated
     results_lines = results_text
