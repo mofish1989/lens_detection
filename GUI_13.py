@@ -10,7 +10,8 @@ from sklearn.linear_model import RANSACRegressor
 from scipy.stats import iqr
 
 # === Load YOLO Models ===
-model_lens = YOLO("200x_lens.pt")       # For lens/circles
+# model_lens = YOLO("200x_lens.pt")       # For lens/circles
+model_lens = YOLO("circle.pt")       # For lens/circles
 model_rectangle = YOLO("outer_rect.pt")  # For rectangles (out - segmentation model)
 # model_rectangle = YOLO("40x_rectt.pt")  # For rectangles (in/out)
 model_defects = YOLO("defects.pt")      # For defect detection
@@ -191,7 +192,7 @@ def load_logo_image(path, max_w=250, max_h=140):
     try:
         img = Image.open(path)
         img.thumbnail((max_w, max_h))
-        return ImageTk.PhotoImage(img)
+        return ctk.CTkImage(light_image=img, size=(img.width, img.height))
     except Exception:
         return None
 
@@ -633,7 +634,8 @@ def run_detection():
             for box, cls in zip(res_lens.boxes.xyxy.cpu().numpy(), res_lens.boxes.cls.cpu().numpy()):
                 x1, y1, x2, y2 = map(int, box)
                 label = res_lens.names[int(cls)].lower()
-                if label != "lens":
+                print(model_lens.names)
+                if label != "lens" and label != "circle":
                     continue
                 w, h = x2 - x1, y2 - y1
                 center_x, center_y = (x1 + x2)//2, (y1 + y2)//2
@@ -713,11 +715,11 @@ def run_detection():
                 for box, cls in zip(res_lens.boxes.xyxy.cpu().numpy(), res_lens.boxes.cls.cpu().numpy()):
                     x1, y1, x2, y2 = map(int, box)
                     label = res_lens.names[int(cls)].lower()
-                    if label != "lens":
+                    if label != "circle":
                         continue
                     w, h = x2 - x1, y2 - y1
                     center_x, center_y = (x1 + x2) // 2, (y1 + y2) // 2
-                    diameter_px = w
+                    diameter_px = (w + h) / 2
                     # Use 40x pixel scale for diameter calculation
                     diameter_mm = diameter_px / pixel_scale
                     in_tol = abs(diameter_mm - TARGET_LENS_DIAMETER) <= LENS_TOL
