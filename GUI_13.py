@@ -33,7 +33,8 @@ PROFILES = {
     "blue": {"outer": (4.0, 1.5, 2.0), "inner": (3.0, 1.5, 2.5), "confirm": 12, "deep_scan": 12},
     "dark_dark": {"outer": (30.0, 2.5, 2.0), "inner": (12.0, 4.0, 1.2), "confirm": 5, "deep_scan": 0},
     # "dark_dark": {"outer": (40.0, 5.0, 1.8), "inner": (12.0, 4.0, 1.2), "confirm": 5, "deep_scan": 0},
-    "dark_light": {"outer": (40.0, 5.0, 1.5), "inner": (25.0, 2.0, 1.8), "confirm": 5, "deep_scan": 3},
+    "dark_light": {"outer": (3.0, 1.0, 1.5), "inner": (40.0, 12.0, 5.0), "confirm": 5, "deep_scan": 3},
+    # "dark_light": {"outer": (40.0, 5.0, 1.5), "inner": (25.0, 2.0, 1.8), "confirm": 5, "deep_scan": 3},
     "grey_light": {"outer": (2.0, 1.2, 2.8), "inner": (1.2, 1.5, 2.0), "confirm": 5, "deep_scan": 3},
     "grey_dark": {"outer": (2.5, 1.2, 2.0), "inner": (2.0, 2.0, 2.0), "confirm": 5, "deep_scan": 6},
     "yellow_dark": {"outer": (4.0, 1.5, 2.0), "inner": (15.0, 2.5, 2.0), "confirm": 6, "deep_scan": 3},
@@ -1130,40 +1131,5 @@ app.bind("<Configure>", on_window_resize)
 
 # Initial responsive setup after window is realized
 app.after(100, lambda: refresh_responsive_elements())
-
-def on_mousewheel(event):
-    global zoom_level
-    if annotated_image is None:
-        return
-    if event.num == 4 or event.delta > 0:
-        zoom_factor = 1.1
-    elif event.num == 5 or event.delta < 0:
-        zoom_factor = 0.9
-    else:
-        return
-    new_zoom = zoom_level * zoom_factor
-    if new_zoom < min_zoom:
-        new_zoom = min_zoom
-    elif new_zoom > max_zoom:
-        new_zoom = max_zoom
-    if abs(new_zoom - zoom_level) < 0.001:
-        return
-    zoom_level = new_zoom
-    update_annotated_tab()
-
-def on_pan_start(event):
-    global pan_start_x, pan_start_y
-    pan_start_x = event.x
-    pan_start_y = event.y
-
-def on_pan_move(event):
-    global pan_start_x, pan_start_y, annotated_canvas, canvas_img_id
-    if canvas_img_id is None:
-        return
-    dx = event.x - pan_start_x
-    dy = event.y - pan_start_y
-    annotated_canvas.move(canvas_img_id, dx, dy)
-    pan_start_x = event.x
-    pan_start_y = event.y
 
 app.mainloop()
