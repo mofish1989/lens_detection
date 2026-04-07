@@ -730,33 +730,21 @@ class LensQCApp:
         self._update_annotated_tab()
         self._update_results_tab()
 
+    _SAVE_DIRS = {
+        ("measurement", "40x"):  "measurements/40x",
+        ("measurement", "80x"):  "measurements/80x",
+        ("measurement", "200x"): "measurements/200x",
+        ("defect", None):        "defects",
+    }
+
     def _save_results(self, mode):
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         base_name = os.path.splitext(os.path.basename(self.uploaded_image_path))[0]
 
-        measurements_dir = os.path.join(HISTORY_DIR, "measurements")
-        defects_dir = os.path.join(HISTORY_DIR, "defects")
-        meas_40x_dir = os.path.join(measurements_dir, "40x")
-        meas_80x_dir = os.path.join(measurements_dir, "80x")
-        meas_200x_dir = os.path.join(measurements_dir, "200x")
-        os.makedirs(measurements_dir, exist_ok=True)
-        os.makedirs(defects_dir, exist_ok=True)
-        os.makedirs(meas_40x_dir, exist_ok=True)
-        os.makedirs(meas_80x_dir, exist_ok=True)
-        os.makedirs(meas_200x_dir, exist_ok=True)
-
-        if mode == "defect":
-            save_dir = defects_dir
-        elif mode == "measurement":
-            zoom = self.zoom_var.get()
-            if zoom == "40x":
-                save_dir = meas_40x_dir
-            elif zoom == "80x":
-                save_dir = meas_80x_dir
-            else:
-                save_dir = meas_200x_dir
-        else:
-            save_dir = HISTORY_DIR
+        zoom = self.zoom_var.get() if mode == "measurement" else None
+        sub_dir = self._SAVE_DIRS.get((mode, zoom), "")
+        save_dir = os.path.join(HISTORY_DIR, sub_dir)
+        os.makedirs(save_dir, exist_ok=True)
 
         save_path = os.path.join(save_dir, f"{base_name}_annotated_{timestamp}.png")
         txt_path = os.path.join(save_dir, f"{base_name}_annotated_{timestamp}.txt")
