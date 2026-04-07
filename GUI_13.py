@@ -92,343 +92,13 @@ def detect_profile(image):
 HISTORY_DIR = "history"
 os.makedirs(HISTORY_DIR, exist_ok=True)
 
-# === App Window Configuration ===
-ctk.set_appearance_mode("light")  # Set light mode for better visibility
-ctk.set_default_color_theme("blue")  # Use blue theme for professional look
-app = ctk.CTk()
-
-# Responsive window configuration
-def get_screen_size():
-    """Get screen dimensions for responsive sizing"""
-    return app.winfo_screenwidth(), app.winfo_screenheight()
-
-def set_responsive_geometry():
-    """Set responsive window size based on screen dimensions"""
-    screen_width, screen_height = get_screen_size()
-    
-    # Calculate responsive dimensions (80% of screen size, with constraints)
-    window_width = min(max(int(screen_width * 0.8), 1200), 1600)  # Between 1200-1600px
-    window_height = min(max(int(screen_height * 0.8), 800), 1000)  # Between 800-1000px
-    
-    # Center the window
-    x = (screen_width - window_width) // 2
-    y = (screen_height - window_height) // 2
-    
-    app.geometry(f"{window_width}x{window_height}+{x}+{y}")
-    app.minsize(1000, 600)  # Minimum usable size
-
-set_responsive_geometry()
-app.title("Lens Quality Check")
-app.configure(fg_color="#e0e0e0")  # Lighter grey background for main window
-
-# --- Globals ---
-uploaded_image = None
-uploaded_image_path = None
-annotated_image = None
-measure_type = "rectangle"
-image_preview_tk = None
-annotated_image_tk = None
-results_lines = []
-tabs_created = False
-tabs = None
-
-zoom_level = 1.0
-min_zoom = 0.1
-max_zoom = 5.0
-pan_start_x = 0
-pan_start_y = 0
-offset_x = 0
-offset_y = 0
-annotated_canvas = None
-canvas_img_id = None
-
-upload_tab_upload_btn = None
-upload_tab_run_detection_btn = None
-preview_img_label = None
-
-# --- Responsive Sidebar ---
-def get_responsive_sidebar_width():
-    """Calculate responsive sidebar width based on window size"""
-    window_width = app.winfo_width()
-    if window_width < 1200:
-        return 250  # Narrower sidebar for smaller screens
-    elif window_width < 1400:
-        return 280  # Standard sidebar
-    else:
-        return 320  # Wider sidebar for larger screens
-
-# Initialize with responsive width
-initial_sidebar_width = 280  # Default until window is realized
-sidebar = ctk.CTkFrame(app, width=initial_sidebar_width, fg_color="#eaeaea", corner_radius=15)
-sidebar.pack(side="left", fill="y", padx=(20, 10), pady=20)  # Added right padding for gap
-sidebar.pack_propagate(False)  # Maintain fixed width
-
-# Add visual separator/gap between sidebar and main frame
-# separator = ctk.CTkFrame(app, width=2, fg_color="#d0d0d0", corner_radius=0)  # Light grey separator
-# separator.pack(side="left", fill="y", pady=20)
-
-# Responsive font sizing
-def get_responsive_font_size(base_size, scale_factor=1.0):
-    """Calculate responsive font size based on window dimensions"""
-    window_width = app.winfo_width()
-    if window_width < 1200:
-        return int(base_size * 0.9 * scale_factor)  # Smaller fonts for smaller screens
-    elif window_width > 1500:
-        return int(base_size * 1.1 * scale_factor)  # Larger fonts for larger screens
-    else:
-        return int(base_size * scale_factor)
-
-# Header with responsive font
-def update_header_font():
-    """Update header font size responsively"""
-    font_size = get_responsive_font_size(26)
-    project_label.configure(font=("Arial", font_size, "bold"))
-
-project_label = ctk.CTkLabel(sidebar, text="Lens Quality Check", 
-                           font=("Arial", 26, "bold"),
-                           wraplength=1000)
-project_label.pack(pady=15)
-
-def load_logo_image(path, max_w=250, max_h=140):
+def _load_logo_image(path, max_w=250, max_h=140):
     try:
         img = Image.open(path)
         img.thumbnail((max_w, max_h))
         return ctk.CTkImage(light_image=img, size=(img.width, img.height))
     except Exception:
         return None
-
-logo1_img = load_logo_image("lsp-logo.png")
-logo2_img = load_logo_image("sp-logo1.png")
-
-if logo1_img:
-    logo1_label = ctk.CTkLabel(sidebar, image=logo1_img, text="")
-    logo1_label.pack(padx=20, pady=(16,10))
-
-collab_label = ctk.CTkLabel(sidebar, text="in collaboration with", font=("Arial", 18))
-collab_label.pack(pady=(5,5))
-
-if logo2_img:
-    logo2_label = ctk.CTkLabel(sidebar, image=logo2_img, text="")
-    logo2_label.pack(padx=20, pady=(10,28))
-
-mode_var = ctk.StringVar(value="measurement")
-mode_label = ctk.CTkLabel(sidebar, text="Mode:", font=("Arial", 18, "bold"))
-mode_label.pack(pady=(0, 5), padx=70, anchor="w")
-# Mode selection dropdown with consistent styling
-mode_dropdown = ctk.CTkOptionMenu(sidebar, 
-                                variable=mode_var, 
-                                values=["measurement", "defect"],
-                                width=200,
-                                height=40,
-                                font=("Arial", 18),
-                                dropdown_font=("Arial", 17),
-                                corner_radius=10)  # Consistent corner radius
-mode_dropdown.pack(pady=(0,20))  # Standard vertical spacing
-
-# Zoom level selection with consistent styling
-zoom_var = ctk.StringVar(value="40x")
-zoom_options = ["40x", "80x", "200x"]
-zoom_dropdown = ctk.CTkOptionMenu(sidebar, 
-                                variable=zoom_var, 
-                                values=zoom_options, 
-                                command=lambda _: update_measurement_type(),
-                                width=200,
-                                height=40,
-                                font=("Arial", 18),
-                                dropdown_font=("Arial", 17),
-                                corner_radius=10)  # Consistent corner radius
-zoom_dropdown.pack(pady=(0,20))  # Standard vertical spacing
-
-# Status Label
-# Status label with standardized font and wrapping
-status_label = ctk.CTkLabel(sidebar, 
-                           text="Current Mode: Rectangle Measurement (40x)", 
-                           wraplength=200,  # Standard sidebar text wrapping
-                           justify="center",  # Centered text for better aesthetics
-                           font=("Arial", 18),  # Standard status text size
-                           corner_radius=10)  # Consistent corner radius
-status_label.pack(pady=(10,20))  # Standard vertical spacing
-
-def update_status_label(*args):
-    mode = mode_var.get()
-    zoom = zoom_var.get()
-    if mode == "defect":
-        status_text = "Current Mode:\nDefect Detection"
-    else:  # measurement mode
-        if zoom in ("40x", "80x"):
-            measure_type = "Rectangle & Lens"
-        else:
-            measure_type = "Lens"
-        status_text = f"Current Mode:\n{measure_type} Measurement ({zoom})"
-    status_label.configure(text=status_text)
-
-# Trace for update status and pixel scale
-mode_var.trace_add("write", update_status_label)
-zoom_var.trace_add("write", update_status_label)
-
-# --- Pixel Scale Configuration ---
-pixel_scale_40x_var = ctk.StringVar(value=str(PIXEL_SCALES["40x"]))
-pixel_scale_80x_var = ctk.StringVar(value=str(PIXEL_SCALES["80x"]))
-pixel_scale_200x_var = ctk.StringVar(value=str(PIXEL_SCALES["200x"]))
-
-def update_pixel_scale_from_entry():
-    """Update global PIXEL_SCALES dictionary from entry fields"""
-    try:
-        val_40x = float(pixel_scale_40x_var.get())
-        PIXEL_SCALES["40x"] = val_40x
-        
-        val_80x = float(pixel_scale_80x_var.get())
-        PIXEL_SCALES["80x"] = val_80x
-        
-        val_200x = float(pixel_scale_200x_var.get())
-        PIXEL_SCALES["200x"] = val_200x
-        
-        messagebox.showinfo("Success", f"Pixel scales updated:\n40x: {val_40x}\n80x: {val_80x}\n200x: {val_200x}")
-    except ValueError:
-        messagebox.showerror("Error", "Please enter valid numeric values for pixel scales.")
-
-# Pixel Scale UI Header
-scale_label = ctk.CTkLabel(sidebar, text="Pixel to mm Scale:", font=("Arial", 18, "bold"))
-scale_label.pack(pady=(10, 5), padx=70, anchor="w")
-
-# 40x Scale Row (aligned with Confirm button)
-scale_40x_row = ctk.CTkFrame(sidebar, fg_color="transparent")
-scale_40x_row.pack(pady=(0, 10), padx=0, fill="x")
-scale_40x_label = ctk.CTkLabel(scale_40x_row, text="40x:", font=("Arial", 18), width=60, anchor="w")
-scale_40x_label.pack(side="left", padx=(65,0))
-scale_40x_entry = ctk.CTkEntry(
-    scale_40x_row,
-    textvariable=pixel_scale_40x_var,
-    width=140,
-    height=40,
-    font=("Arial", 18),
-    corner_radius=10,
-)
-scale_40x_entry.pack(side="right", padx=(0,60))
-
-# 80x Scale Row (aligned with Confirm button)
-scale_80x_row = ctk.CTkFrame(sidebar, fg_color="transparent")
-scale_80x_row.pack(pady=(0, 10), padx=0, fill="x")
-scale_80x_label = ctk.CTkLabel(scale_80x_row, text="80x:", font=("Arial", 18), width=60, anchor="w")
-scale_80x_label.pack(side="left", padx=(65,0))
-scale_80x_entry = ctk.CTkEntry(
-    scale_80x_row,
-    textvariable=pixel_scale_80x_var,
-    width=140,
-    height=40,
-    font=("Arial", 18),
-    corner_radius=10,
-)
-scale_80x_entry.pack(side="right", padx=(0,60))
-
-# 200x Scale Row (aligned with Confirm button)
-scale_200x_row = ctk.CTkFrame(sidebar, fg_color="transparent")
-scale_200x_row.pack(pady=(0, 10), padx=0, fill="x")
-scale_200x_label = ctk.CTkLabel(scale_200x_row, text="200x:", font=("Arial", 18), width=60, anchor="w")
-scale_200x_label.pack(side="left", padx=(65,0))
-scale_200x_entry = ctk.CTkEntry(
-    scale_200x_row,
-    textvariable=pixel_scale_200x_var,
-    width=140,
-    height=40,
-    font=("Arial", 18),
-    corner_radius=10,
-)
-scale_200x_entry.pack(side="right", padx=(0,60))
-
-# Confirm Button
-confirm_scale_btn = ctk.CTkButton(sidebar, 
-                                text="Confirm Scale", 
-                                command=update_pixel_scale_from_entry,
-                                width=200,
-                                height=40,
-                                font=("Arial", 18),
-                                corner_radius=10)
-confirm_scale_btn.pack(pady=(0, 20))
-
-# Initialize status label
-update_status_label()
-
-main_frame = ctk.CTkFrame(app, fg_color="#eaeaea", corner_radius=15)
-main_frame.pack(side="left", fill="both", expand=True, padx=(10, 20), pady=20)  # Left padding for gap
-
-# Content container for better organization
-content_frame = ctk.CTkFrame(main_frame, fg_color="#eaeaea")
-content_frame.pack(fill="both", expand=True, padx=10, pady=10)
-
-# Auto-update measurement type based on zoom level
-def update_measurement_type():
-    global measure_type
-    if zoom_var.get() in ("40x", "80x"):
-        measure_type = "rectangle"
-    else:
-        measure_type = "lens"
-
-zoom_var.trace_add("write", lambda *args: update_measurement_type())
-
-# === Upload & Preview Functions ===
-def upload_image():
-    global uploaded_image, uploaded_image_path, image_preview_tk, zoom_level
-    path = filedialog.askopenfilename(filetypes=[("Image Files", "*.jpg *.jpeg *.png *.bmp")])
-    if not path:
-        return
-    img = cv2.imread(path)
-    if img is None:
-        messagebox.showerror("Error", "Cannot load image.")
-        return
-    uploaded_image = img
-    uploaded_image_path = path
-    zoom_level = 1.0
-    show_preview_image(img)
-    if upload_tab_run_detection_btn:
-        upload_tab_run_detection_btn.configure(state="normal")
-
-def show_preview_image(img):
-    global image_preview_tk
-    img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    img_pil = Image.fromarray(img_rgb)
-    
-    # Calculate aspect ratio for resizing
-    aspect_ratio = img_pil.width / img_pil.height
-    
-    # Get responsive dimensions based on available space
-    def get_available_preview_space():
-        """Calculate available space for image preview"""
-        window_width = app.winfo_width()
-        window_height = app.winfo_height()
-        
-        # Account for sidebar and padding
-        available_width = max(window_width - 400, 400)  # Subtract sidebar + padding
-        available_height = max(window_height - 180, 500)  # Reduced subtraction for more height
-        
-        return available_width, available_height
-    
-    available_width, available_height = get_available_preview_space()
-    
-    # Calculate best-fit dimensions to ensure it fits BOTH width AND height
-    # We use a 95% margin to ensure it doesn't touch the edges
-    scale_w = (available_width * 0.95) / img_pil.width
-    scale_h = (available_height * 0.95) / img_pil.height
-    
-    # Use the minimum of both scales to ensure the image fits within BOTH dimensions
-    scale = min(scale_w, scale_h)
-    
-    target_width = int(img_pil.width * scale)
-    target_height = int(img_pil.height * scale)
-    
-    # Ensure it's not larger than the absolute available space
-    if target_width > available_width:
-        target_width = int(available_width * 0.95)
-        target_height = int(target_width / aspect_ratio)
-    if target_height > available_height:
-        target_height = int(available_height * 0.95)
-        target_width = int(target_height * aspect_ratio)
-    
-    img_pil = img_pil.resize((int(target_width), int(target_height)), Image.LANCZOS)
-    image_preview_tk = ctk.CTkImage(light_image=img_pil, size=(int(target_width), int(target_height)))
-    
-    if preview_img_label:
-        preview_img_label.configure(image=image_preview_tk, text="")
 
 # === Detection Function (Measurement & Defect) ===
 def detect_rectangles_40x(image, pixel_scale):
@@ -703,106 +373,367 @@ def detect_and_annotate_lenses(image, annotated, pixel_scale, label_filter, font
 
     return annotated, results_text
 
-def run_detection():
-    global annotated_image, annotated_image_tk, results_lines, tabs_created, tabs, zoom_level
+class LensQCApp:
+    def __init__(self):
+        ctk.set_appearance_mode("light")
+        ctk.set_default_color_theme("blue")
+        self.app = ctk.CTk()
 
-    if uploaded_image is None:
-        messagebox.showwarning("Warning", "Please upload an image first.")
-        return
+        # --- State ---
+        self.uploaded_image = None
+        self.uploaded_image_path = None
+        self.annotated_image = None
+        self.measure_type = "rectangle"
+        self.image_preview_tk = None
+        self.annotated_image_tk = None
+        self.results_lines = []
 
-    mode = mode_var.get()
-    pixel_scale = PIXEL_SCALES.get(zoom_var.get(), 380)
+        self.tabs_created = False
+        self.tabs = None
+        self.results_textbox = None
 
-    annotated = uploaded_image.copy()
-    results_text = []
+        self.zoom_level = 1.0
+        self.min_zoom = 0.1
+        self.max_zoom = 5.0
+        self.pan_start_x = 0
+        self.pan_start_y = 0
+        self.offset_x = 0
+        self.offset_y = 0
+        self.annotated_canvas = None
+        self.canvas_img_id = None
 
-    # --- Measurement Logic ---
-    if mode == "measurement":
-        if measure_type == "lens":
-            # 200x lens measurement
-            annotated, lens_results = detect_and_annotate_lenses(
-                uploaded_image, annotated, pixel_scale,
-                label_filter=["lens", "circle"], font_scale=2.0, thickness=4)
-            results_text.extend(lens_results)
-        
-        # --- Rectangle Measurement Logic ---
-        elif measure_type == "rectangle":
-            # Use edge detection method for rectangles
-            annotated, rect_results = detect_rectangles_40x(uploaded_image, pixel_scale)
-            
-            results_text.append("=== Rectangle Measurements ===")
-            for result in rect_results:
-                if 'error' in result:
-                    results_text.append(f"{result['name']} Rectangle: {result['error']}")
-                else:
-                    status = "OK" if result['in_tolerance'] else "Out of Tolerance"
-                    results_text.append(f"{result['name']} Rectangle: {result['length_mm']:.3f}mm x {result['breadth_mm']:.3f}mm - {status}")
-                    if not result['length_ok']:
-                        results_text.append(f"  Length out of tolerance: {result['length_mm']:.3f}mm")
-                    if not result['breadth_ok']:
-                        results_text.append(f"  Breadth out of tolerance: {result['breadth_mm']:.3f}mm")
+        self.upload_tab_upload_btn = None
+        self.upload_tab_run_detection_btn = None
+        self.preview_img_label = None
 
-            # --- Also detect lenses using circle model ---
-            results_text.append("")
-            results_text.append("=== Lens Measurements ===")
-            annotated, lens_results = detect_and_annotate_lenses(
-                uploaded_image, annotated, pixel_scale,
-                label_filter=["circle"], font_scale=0.4, thickness=1)
-            results_text.extend(lens_results)
+        # --- Build UI ---
+        self._set_responsive_geometry()
+        self.app.title("Lens Quality Check")
+        self.app.configure(fg_color="#e0e0e0")
 
-    # --- Defect Logic (Segmentation) ---
-    elif mode=="defect":
-        res_def = model_defects(uploaded_image)[0]
-        img_height, img_width = uploaded_image.shape[:2]
-        defect_count = 0
+        self._build_sidebar()
+        self._build_main_frame()
+        self._create_tabs()
+        self.tabs_created = True
 
-        for i, (box, cls, conf) in enumerate(zip(
-                res_def.boxes.xyxy.cpu().numpy(),
-                res_def.boxes.cls.cpu().numpy(),
-                res_def.boxes.conf.cpu().numpy())):
-            x1, y1, x2, y2 = map(int, box)
-            class_name = res_def.names[int(cls)]
-            defect_count += 1
+        self.app.bind("<Configure>", self._on_window_resize)
+        self.app.after(100, self._refresh_responsive_elements)
 
-            # Draw segmentation mask if available
-            if hasattr(res_def, 'masks') and res_def.masks is not None and i < len(res_def.masks.data):
-                mask = res_def.masks.data[i].cpu().numpy()
-                mask_h, mask_w = mask.shape
-                if mask_h != img_height or mask_w != img_width:
-                    mask = cv2.resize(mask, (img_width, img_height))
-                binary_mask = (mask > 0.5).astype(np.uint8) * 255
-                contours, _ = cv2.findContours(binary_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    def run(self):
+        self.app.mainloop()
 
-                # Semi-transparent red overlay for the mask region
-                overlay = annotated.copy()
-                cv2.fillPoly(overlay, contours, (0, 0, 255))
-                cv2.addWeighted(overlay, 0.3, annotated, 0.7, 0, annotated)
+    # === Window Geometry ===
 
-                # Draw contour outline
-                cv2.drawContours(annotated, contours, -1, (0, 0, 255), 2)
-            else:
-                # Fallback to bounding box if no mask
-                cv2.rectangle(annotated, (x1, y1), (x2, y2), (0, 0, 255), 2)
+    def _set_responsive_geometry(self):
+        screen_width = self.app.winfo_screenwidth()
+        screen_height = self.app.winfo_screenheight()
+        window_width = min(max(int(screen_width * 0.8), 1200), 1600)
+        window_height = min(max(int(screen_height * 0.8), 800), 1000)
+        x = (screen_width - window_width) // 2
+        y = (screen_height - window_height) // 2
+        self.app.geometry(f"{window_width}x{window_height}+{x}+{y}")
+        self.app.minsize(1000, 600)
 
-            # Label with class name and confidence
-            label = f"{class_name} {conf:.2f}"
-            cv2.putText(annotated, label, (x1, max(20, y1 - 8)),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
-            results_text.append(f"Defect {defect_count}: {class_name} (conf={conf:.2f}) at ({x1},{y1}) ({x2},{y2})")
-
-        if defect_count == 0:
-            results_text.append("No defects detected.")
+    def _get_responsive_sidebar_width(self):
+        window_width = self.app.winfo_width()
+        if window_width < 1200:
+            return 250
+        elif window_width < 1400:
+            return 280
         else:
-            results_text.insert(0, f"Total defects found: {defect_count}")
+            return 320
 
-    annotated_image = annotated
-    results_lines = results_text
+    def _get_responsive_font_size(self, base_size, scale_factor=1.0):
+        window_width = self.app.winfo_width()
+        if window_width < 1200:
+            return int(base_size * 0.9 * scale_factor)
+        elif window_width > 1500:
+            return int(base_size * 1.1 * scale_factor)
+        else:
+            return int(base_size * scale_factor)
 
-    # --- Auto-save annotated image ---
-    if annotated_image is not None:
+    # === Sidebar ===
+
+    def _build_sidebar(self):
+        self.sidebar = ctk.CTkFrame(self.app, width=280, fg_color="#eaeaea", corner_radius=15)
+        self.sidebar.pack(side="left", fill="y", padx=(20, 10), pady=20)
+        self.sidebar.pack_propagate(False)
+
+        self.project_label = ctk.CTkLabel(self.sidebar, text="Lens Quality Check",
+                                          font=("Arial", 26, "bold"), wraplength=1000)
+        self.project_label.pack(pady=15)
+
+        logo1_img = _load_logo_image("lsp-logo.png")
+        logo2_img = _load_logo_image("sp-logo1.png")
+
+        if logo1_img:
+            self._logo1_img = logo1_img  # prevent garbage collection
+            logo1_label = ctk.CTkLabel(self.sidebar, image=logo1_img, text="")
+            logo1_label.pack(padx=20, pady=(16, 10))
+
+        collab_label = ctk.CTkLabel(self.sidebar, text="in collaboration with", font=("Arial", 18))
+        collab_label.pack(pady=(5, 5))
+
+        if logo2_img:
+            self._logo2_img = logo2_img
+            logo2_label = ctk.CTkLabel(self.sidebar, image=logo2_img, text="")
+            logo2_label.pack(padx=20, pady=(10, 28))
+
+        # Mode dropdown
+        self.mode_var = ctk.StringVar(value="measurement")
+        mode_label = ctk.CTkLabel(self.sidebar, text="Mode:", font=("Arial", 18, "bold"))
+        mode_label.pack(pady=(0, 5), padx=70, anchor="w")
+        ctk.CTkOptionMenu(self.sidebar, variable=self.mode_var,
+                          values=["measurement", "defect"],
+                          width=200, height=40, font=("Arial", 18),
+                          dropdown_font=("Arial", 17), corner_radius=10).pack(pady=(0, 20))
+
+        # Zoom dropdown
+        self.zoom_var = ctk.StringVar(value="40x")
+        ctk.CTkOptionMenu(self.sidebar, variable=self.zoom_var,
+                          values=["40x", "80x", "200x"],
+                          command=lambda _: self._update_measurement_type(),
+                          width=200, height=40, font=("Arial", 18),
+                          dropdown_font=("Arial", 17), corner_radius=10).pack(pady=(0, 20))
+
+        # Status label
+        self.status_label = ctk.CTkLabel(self.sidebar,
+                                         text="Current Mode: Rectangle Measurement (40x)",
+                                         wraplength=200, justify="center",
+                                         font=("Arial", 18), corner_radius=10)
+        self.status_label.pack(pady=(10, 20))
+
+        # Variable traces
+        self.mode_var.trace_add("write", self._update_status_label)
+        self.zoom_var.trace_add("write", self._update_status_label)
+        self.zoom_var.trace_add("write", lambda *args: self._update_measurement_type())
+
+        # Pixel scale entries
+        self.pixel_scale_40x_var = ctk.StringVar(value=str(PIXEL_SCALES["40x"]))
+        self.pixel_scale_80x_var = ctk.StringVar(value=str(PIXEL_SCALES["80x"]))
+        self.pixel_scale_200x_var = ctk.StringVar(value=str(PIXEL_SCALES["200x"]))
+
+        scale_label = ctk.CTkLabel(self.sidebar, text="Pixel to mm Scale:", font=("Arial", 18, "bold"))
+        scale_label.pack(pady=(10, 5), padx=70, anchor="w")
+
+        for label_text, var in [("40x:", self.pixel_scale_40x_var),
+                                ("80x:", self.pixel_scale_80x_var),
+                                ("200x:", self.pixel_scale_200x_var)]:
+            row = ctk.CTkFrame(self.sidebar, fg_color="transparent")
+            row.pack(pady=(0, 10), padx=0, fill="x")
+            ctk.CTkLabel(row, text=label_text, font=("Arial", 18),
+                         width=60, anchor="w").pack(side="left", padx=(65, 0))
+            ctk.CTkEntry(row, textvariable=var, width=140, height=40,
+                         font=("Arial", 18), corner_radius=10).pack(side="right", padx=(0, 60))
+
+        ctk.CTkButton(self.sidebar, text="Confirm Scale",
+                      command=self._update_pixel_scale_from_entry,
+                      width=200, height=40, font=("Arial", 18),
+                      corner_radius=10).pack(pady=(0, 20))
+
+        self._update_status_label()
+
+    # === Main Frame ===
+
+    def _build_main_frame(self):
+        self.main_frame = ctk.CTkFrame(self.app, fg_color="#eaeaea", corner_radius=15)
+        self.main_frame.pack(side="left", fill="both", expand=True, padx=(10, 20), pady=20)
+
+        self.content_frame = ctk.CTkFrame(self.main_frame, fg_color="#eaeaea")
+        self.content_frame.pack(fill="both", expand=True, padx=10, pady=10)
+
+    # === Status / Measurement Helpers ===
+
+    def _update_status_label(self, *args):
+        mode = self.mode_var.get()
+        zoom = self.zoom_var.get()
+        if mode == "defect":
+            status_text = "Current Mode:\nDefect Detection"
+        else:
+            if zoom in ("40x", "80x"):
+                mt = "Rectangle & Lens"
+            else:
+                mt = "Lens"
+            status_text = f"Current Mode:\n{mt} Measurement ({zoom})"
+        self.status_label.configure(text=status_text)
+
+    def _update_measurement_type(self):
+        if self.zoom_var.get() in ("40x", "80x"):
+            self.measure_type = "rectangle"
+        else:
+            self.measure_type = "lens"
+
+    def _update_pixel_scale_from_entry(self):
+        try:
+            val_40x = float(self.pixel_scale_40x_var.get())
+            PIXEL_SCALES["40x"] = val_40x
+            val_80x = float(self.pixel_scale_80x_var.get())
+            PIXEL_SCALES["80x"] = val_80x
+            val_200x = float(self.pixel_scale_200x_var.get())
+            PIXEL_SCALES["200x"] = val_200x
+            messagebox.showinfo("Success",
+                                f"Pixel scales updated:\n40x: {val_40x}\n80x: {val_80x}\n200x: {val_200x}")
+        except ValueError:
+            messagebox.showerror("Error", "Please enter valid numeric values for pixel scales.")
+
+    def _update_header_font(self):
+        font_size = self._get_responsive_font_size(26)
+        self.project_label.configure(font=("Arial", font_size, "bold"))
+
+    # === Upload & Preview ===
+
+    def upload_image(self):
+        path = filedialog.askopenfilename(filetypes=[("Image Files", "*.jpg *.jpeg *.png *.bmp")])
+        if not path:
+            return
+        img = cv2.imread(path)
+        if img is None:
+            messagebox.showerror("Error", "Cannot load image.")
+            return
+        self.uploaded_image = img
+        self.uploaded_image_path = path
+        self.zoom_level = 1.0
+        self._show_preview_image(img)
+        if self.upload_tab_run_detection_btn:
+            self.upload_tab_run_detection_btn.configure(state="normal")
+
+    def _show_preview_image(self, img):
+        img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        img_pil = Image.fromarray(img_rgb)
+        aspect_ratio = img_pil.width / img_pil.height
+
+        window_width = self.app.winfo_width()
+        window_height = self.app.winfo_height()
+        available_width = max(window_width - 400, 400)
+        available_height = max(window_height - 180, 500)
+
+        scale_w = (available_width * 0.95) / img_pil.width
+        scale_h = (available_height * 0.95) / img_pil.height
+        scale = min(scale_w, scale_h)
+
+        target_width = int(img_pil.width * scale)
+        target_height = int(img_pil.height * scale)
+
+        if target_width > available_width:
+            target_width = int(available_width * 0.95)
+            target_height = int(target_width / aspect_ratio)
+        if target_height > available_height:
+            target_height = int(available_height * 0.95)
+            target_width = int(target_height * aspect_ratio)
+
+        img_pil = img_pil.resize((target_width, target_height), Image.LANCZOS)
+        self.image_preview_tk = ctk.CTkImage(light_image=img_pil, size=(target_width, target_height))
+
+        if self.preview_img_label:
+            self.preview_img_label.configure(image=self.image_preview_tk, text="")
+
+    # === Detection ===
+
+    def run_detection(self):
+        if self.uploaded_image is None:
+            messagebox.showwarning("Warning", "Please upload an image first.")
+            return
+
+        mode = self.mode_var.get()
+        pixel_scale = PIXEL_SCALES.get(self.zoom_var.get(), 380)
+
+        annotated = self.uploaded_image.copy()
+        results_text = []
+
+        # --- Measurement Logic ---
+        if mode == "measurement":
+            if self.measure_type == "lens":
+                # 200x lens measurement
+                annotated, lens_results = detect_and_annotate_lenses(
+                    self.uploaded_image, annotated, pixel_scale,
+                    label_filter=["lens", "circle"], font_scale=2.0, thickness=4)
+                results_text.extend(lens_results)
+
+            # --- Rectangle Measurement Logic ---
+            elif self.measure_type == "rectangle":
+                # Use edge detection method for rectangles
+                annotated, rect_results = detect_rectangles_40x(self.uploaded_image, pixel_scale)
+
+                results_text.append("=== Rectangle Measurements ===")
+                for result in rect_results:
+                    if 'error' in result:
+                        results_text.append(f"{result['name']} Rectangle: {result['error']}")
+                    else:
+                        status = "OK" if result['in_tolerance'] else "Out of Tolerance"
+                        results_text.append(f"{result['name']} Rectangle: {result['length_mm']:.3f}mm x {result['breadth_mm']:.3f}mm - {status}")
+                        if not result['length_ok']:
+                            results_text.append(f"  Length out of tolerance: {result['length_mm']:.3f}mm")
+                        if not result['breadth_ok']:
+                            results_text.append(f"  Breadth out of tolerance: {result['breadth_mm']:.3f}mm")
+
+                # --- Also detect lenses using circle model ---
+                results_text.append("")
+                results_text.append("=== Lens Measurements ===")
+                annotated, lens_results = detect_and_annotate_lenses(
+                    self.uploaded_image, annotated, pixel_scale,
+                    label_filter=["circle"], font_scale=0.4, thickness=1)
+                results_text.extend(lens_results)
+
+        # --- Defect Logic (Segmentation) ---
+        elif mode == "defect":
+            res_def = model_defects(self.uploaded_image)[0]
+            img_height, img_width = self.uploaded_image.shape[:2]
+            defect_count = 0
+
+            for i, (box, cls, conf) in enumerate(zip(
+                    res_def.boxes.xyxy.cpu().numpy(),
+                    res_def.boxes.cls.cpu().numpy(),
+                    res_def.boxes.conf.cpu().numpy())):
+                x1, y1, x2, y2 = map(int, box)
+                class_name = res_def.names[int(cls)]
+                defect_count += 1
+
+                # Draw segmentation mask if available
+                if hasattr(res_def, 'masks') and res_def.masks is not None and i < len(res_def.masks.data):
+                    mask = res_def.masks.data[i].cpu().numpy()
+                    mask_h, mask_w = mask.shape
+                    if mask_h != img_height or mask_w != img_width:
+                        mask = cv2.resize(mask, (img_width, img_height))
+                    binary_mask = (mask > 0.5).astype(np.uint8) * 255
+                    contours, _ = cv2.findContours(binary_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+                    # Semi-transparent red overlay for the mask region
+                    overlay = annotated.copy()
+                    cv2.fillPoly(overlay, contours, (0, 0, 255))
+                    cv2.addWeighted(overlay, 0.3, annotated, 0.7, 0, annotated)
+
+                    # Draw contour outline
+                    cv2.drawContours(annotated, contours, -1, (0, 0, 255), 2)
+                else:
+                    # Fallback to bounding box if no mask
+                    cv2.rectangle(annotated, (x1, y1), (x2, y2), (0, 0, 255), 2)
+
+                # Label with class name and confidence
+                label = f"{class_name} {conf:.2f}"
+                cv2.putText(annotated, label, (x1, max(20, y1 - 8)),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
+                results_text.append(f"Defect {defect_count}: {class_name} (conf={conf:.2f}) at ({x1},{y1}) ({x2},{y2})")
+
+            if defect_count == 0:
+                results_text.append("No defects detected.")
+            else:
+                results_text.insert(0, f"Total defects found: {defect_count}")
+
+        self.annotated_image = annotated
+        self.results_lines = results_text
+
+        # --- Auto-save annotated image ---
+        if self.annotated_image is not None:
+            self._save_results(mode)
+
+        self._update_preview_tab()
+        self._update_annotated_tab()
+        self._update_results_tab()
+
+    def _save_results(self, mode):
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        base_name = os.path.splitext(os.path.basename(uploaded_image_path))[0]
-        # Organize folders
+        base_name = os.path.splitext(os.path.basename(self.uploaded_image_path))[0]
+
         measurements_dir = os.path.join(HISTORY_DIR, "measurements")
         defects_dir = os.path.join(HISTORY_DIR, "defects")
         meas_40x_dir = os.path.join(measurements_dir, "40x")
@@ -815,298 +746,241 @@ def run_detection():
         os.makedirs(meas_200x_dir, exist_ok=True)
 
         if mode == "defect":
-            save_path = os.path.join(defects_dir, f"{base_name}_annotated_{timestamp}.png")
-            txt_path = os.path.join(defects_dir, f"{base_name}_annotated_{timestamp}.txt")
+            save_dir = defects_dir
         elif mode == "measurement":
-            if zoom_var.get() == "40x":
-                save_path = os.path.join(meas_40x_dir, f"{base_name}_annotated_{timestamp}.png")
-                txt_path = os.path.join(meas_40x_dir, f"{base_name}_annotated_{timestamp}.txt")
-            elif zoom_var.get() == "80x":
-                save_path = os.path.join(meas_80x_dir, f"{base_name}_annotated_{timestamp}.png")
-                txt_path = os.path.join(meas_80x_dir, f"{base_name}_annotated_{timestamp}.txt")
+            zoom = self.zoom_var.get()
+            if zoom == "40x":
+                save_dir = meas_40x_dir
+            elif zoom == "80x":
+                save_dir = meas_80x_dir
             else:
-                save_path = os.path.join(meas_200x_dir, f"{base_name}_annotated_{timestamp}.png")
-                txt_path = os.path.join(meas_200x_dir, f"{base_name}_annotated_{timestamp}.txt")
+                save_dir = meas_200x_dir
         else:
-            save_path = os.path.join(HISTORY_DIR, f"{base_name}_annotated_{timestamp}.png")
-            txt_path = os.path.join(HISTORY_DIR, f"{base_name}_annotated_{timestamp}.txt")
-        cv2.imwrite(save_path, annotated_image)
-        # Save results text output
+            save_dir = HISTORY_DIR
+
+        save_path = os.path.join(save_dir, f"{base_name}_annotated_{timestamp}.png")
+        txt_path = os.path.join(save_dir, f"{base_name}_annotated_{timestamp}.txt")
+        cv2.imwrite(save_path, self.annotated_image)
         with open(txt_path, "w") as f:
-            for line in results_lines:
+            for line in self.results_lines:
                 f.write(line + "\n")
 
-    update_preview_tab()
-    update_annotated_tab()
-    update_results_tab()
-def create_tabs():
-    global tabs, preview_img_label, annotated_img_label, results_textbox
-    global upload_tab_upload_btn, upload_tab_run_detection_btn
-    global annotated_canvas, canvas_img_id
+    # === Tabs ===
 
-    # Responsive tab configuration
-    def get_responsive_tab_padding():
-        """Get responsive padding based on window size"""
-        window_width = app.winfo_width()
+    def _create_tabs(self):
+        window_width = self.app.winfo_width()
         if window_width < 1200:
-            return 10, 10  # Smaller padding for smaller screens
+            pad_x, pad_y = 10, 10
         elif window_width > 1500:
-            return 30, 25  # Larger padding for larger screens
+            pad_x, pad_y = 30, 25
         else:
-            return 20, 20  # Standard padding
+            pad_x, pad_y = 20, 20
 
-    pad_x, pad_y = get_responsive_tab_padding()
+        tab_container = ctk.CTkFrame(self.content_frame, fg_color="#eaeaea", corner_radius=10)
+        tab_container.pack(fill="both", expand=True, padx=pad_x, pady=pad_y)
 
-    # Create tabview with responsive styling
-    tab_container = ctk.CTkFrame(content_frame, fg_color="#eaeaea", corner_radius=10)
-    tab_container.pack(fill="both", expand=True, padx=pad_x, pady=pad_y)
-    
-    tabs = ctk.CTkTabview(tab_container, 
-                         fg_color="#eaeaea",
-                         segmented_button_fg_color="#e0e0e0",
-                         segmented_button_selected_color="#3b8ed0",
-                         segmented_button_selected_hover_color="#36719f",
-                         height=64)  # Responsive tab height
-    tabs.pack(fill="both", expand=True, padx=pad_x, pady=pad_y)
-    
-    # Configure responsive tab button style
-    responsive_font_size = get_responsive_font_size(18)
-    tabs._segmented_button.configure(font=("Arial", responsive_font_size, "bold"), height=48)
-    tabs._segmented_button.configure(corner_radius=10)
-    tabs._segmented_button.grid_configure(padx=pad_x, pady=pad_y)
-    
-    # Create all tabs
-    tabs.add("Upload New")
-    tabs.add("Annotated Image")
-    tabs.add("Results")
-
-    # This is the key line for equal sizing and centering:
-    tabs._segmented_button.grid_columnconfigure((0, 1, 2), weight=1)
-    
-    tabs._segmented_button.configure(
-        font=("Arial", responsive_font_size, "bold"), 
-        height=48,
-        corner_radius=10
-    )
-
-    # Configure each tab responsively
-    for tab_name in ["Upload New", "Annotated Image", "Results"]:
-        tab = tabs.tab(tab_name)
-        tab.configure(fg_color="#eaeaea")
-        # Add responsive padding inside each tab
-        inner_frame = ctk.CTkFrame(tab, fg_color="#eaeaea")
-        inner_frame.pack(fill="both", expand=True, padx=pad_x, pady=pad_y)
-
-    # Get Upload New tab
-    upload_tab = tabs.tab("Upload New")
-    upload_content = upload_tab.winfo_children()[0]
-
-    # Responsive button sizing
-    button_width = max(min(int(app.winfo_width() * 0.12), 200), 120)  # Slightly smaller for side-by-side
-    button_font_size = get_responsive_font_size(18)
-
-    # Create a frame to hold buttons side by side
-    button_frame = ctk.CTkFrame(upload_content, fg_color="transparent")
-    button_frame.pack(pady=(0, 10))
-
-    # Upload button with responsive sizing
-    upload_tab_upload_btn = ctk.CTkButton(button_frame, 
-                                         text="Upload Image",
-                                         command=lambda: upload_image(),
-                                         width=button_width,
-                                         height=48,
-                                         corner_radius=10,
-                                         font=("Arial", button_font_size))
-    upload_tab_upload_btn.pack(side="left", padx=(0, 10))
-
-    # Run Detection button with responsive sizing
-    upload_tab_run_detection_btn = ctk.CTkButton(button_frame,
-                                                text="Run Detection",
-                                                command=lambda: run_detection(),
-                                                width=button_width,
-                                                height=48,
-                                                corner_radius=10,
-                                                font=("Arial", button_font_size))
-    upload_tab_run_detection_btn.pack(side="left", padx=(10, 0))
-
-    # Preview image container - responsive sizing
-    preview_frame = ctk.CTkFrame(upload_content, fg_color="#eaeaea", corner_radius=10)
-    preview_frame.pack(fill="both", expand=True, padx=pad_x, pady=(10, 0))
-
-    # Responsive preview label - no fixed dimensions, adapts to container
-    preview_img_label = ctk.CTkLabel(preview_frame, 
-                                   text="No image uploaded", 
+        self.tabs = ctk.CTkTabview(tab_container,
                                    fg_color="#eaeaea",
-                                   corner_radius=10)
-    preview_img_label.pack(expand=True, fill="both", padx=10, pady=10)
+                                   segmented_button_fg_color="#e0e0e0",
+                                   segmented_button_selected_color="#3b8ed0",
+                                   segmented_button_selected_hover_color="#36719f",
+                                   height=64)
+        self.tabs.pack(fill="both", expand=True, padx=pad_x, pady=pad_y)
 
-    # Get Annotated Image tab
-    annotated_tab = tabs.tab("Annotated Image")
-    annotated_content = annotated_tab.winfo_children()[0]
+        responsive_font_size = self._get_responsive_font_size(18)
+        self.tabs._segmented_button.configure(font=("Arial", responsive_font_size, "bold"), height=48)
+        self.tabs._segmented_button.configure(corner_radius=10)
+        self.tabs._segmented_button.grid_configure(padx=pad_x, pady=pad_y)
 
-    # Responsive annotated image canvas - no fixed dimensions
-    annotated_canvas = ctk.CTkCanvas(annotated_content, 
-                                   bg="gray90", 
-                                   highlightthickness=0)
-    annotated_canvas.pack(fill="both", expand=True, padx=pad_x, pady=pad_y)
+        self.tabs.add("Upload New")
+        self.tabs.add("Annotated Image")
+        self.tabs.add("Results")
 
-    canvas_img_id = None
+        self.tabs._segmented_button.grid_columnconfigure((0, 1, 2), weight=1)
+        self.tabs._segmented_button.configure(
+            font=("Arial", responsive_font_size, "bold"),
+            height=48,
+            corner_radius=10
+        )
 
-    annotated_canvas.bind("<MouseWheel>", on_mousewheel)
-    annotated_canvas.bind("<Button-4>", on_mousewheel)
-    annotated_canvas.bind("<Button-5>", on_mousewheel)
-    annotated_canvas.bind("<ButtonPress-1>", on_pan_start)
-    annotated_canvas.bind("<B1-Motion>", on_pan_move)
+        for tab_name in ["Upload New", "Annotated Image", "Results"]:
+            tab = self.tabs.tab(tab_name)
+            tab.configure(fg_color="#eaeaea")
+            inner_frame = ctk.CTkFrame(tab, fg_color="#eaeaea")
+            inner_frame.pack(fill="both", expand=True, padx=pad_x, pady=pad_y)
 
-    # Get Results tab
-    results_tab = tabs.tab("Results")
-    results_content = results_tab.winfo_children()[0]
-    
-    # Responsive results textbox
-    results_font_size = get_responsive_font_size(14)
-    results_textbox = ctk.CTkTextbox(results_content, 
-                                    wrap="word", 
-                                    fg_color="white", 
-                                    font=("Arial", results_font_size),
-                                    corner_radius=10)
-    results_textbox.pack(fill="both", expand=True, padx=pad_x, pady=pad_y)
-    results_textbox.configure(state="disabled")
+        # Upload tab
+        upload_tab = self.tabs.tab("Upload New")
+        upload_content = upload_tab.winfo_children()[0]
 
-    update_preview_tab()
-    update_annotated_tab()
-    update_results_tab()
-    update_upload_tab_buttons_visibility()
+        button_width = max(min(int(self.app.winfo_width() * 0.12), 200), 120)
+        button_font_size = self._get_responsive_font_size(18)
 
-def update_preview_tab():
-    global image_preview_tk
-    if uploaded_image is None:
-        return
-    
-    # Use the responsive show_preview_image function
-    show_preview_image(uploaded_image)
+        button_frame = ctk.CTkFrame(upload_content, fg_color="transparent")
+        button_frame.pack(pady=(0, 10))
 
-def update_annotated_tab():
-    global annotated_image_tk, zoom_level, annotated_canvas, canvas_img_id, offset_x, offset_y
-    if annotated_image is None:
-        return
-    img_rgb = cv2.cvtColor(annotated_image, cv2.COLOR_BGR2RGB)
-    img_pil = Image.fromarray(img_rgb)
-    new_size = (int(img_pil.width * zoom_level), int(img_pil.height * zoom_level))
-    resized_img = img_pil.resize(new_size, Image.LANCZOS)
-    annotated_image_tk = ctk.CTkImage(light_image=resized_img, size=new_size)
-    annotated_canvas.delete("all")
-    # For Canvas widget we still need to use PhotoImage
-    canvas_image = ImageTk.PhotoImage(resized_img)
-    canvas_img_id = annotated_canvas.create_image(offset_x, offset_y, anchor="nw", image=canvas_image)
-    annotated_canvas.image = canvas_image  # Keep a reference
-    annotated_canvas.config(scrollregion=(0, 0, new_size[0], new_size[1]))
+        self.upload_tab_upload_btn = ctk.CTkButton(button_frame,
+                                                   text="Upload Image",
+                                                   command=self.upload_image,
+                                                   width=button_width,
+                                                   height=48,
+                                                   corner_radius=10,
+                                                   font=("Arial", button_font_size))
+        self.upload_tab_upload_btn.pack(side="left", padx=(0, 10))
 
-def update_results_tab():
-    results_textbox.configure(state="normal")
-    results_textbox.delete("0.0", "end")
-    for line in results_lines:
-        if "Out of Tolerance" in line:
-            results_textbox.insert("end", line + "\n", ("red",))
-        else:
-            results_textbox.insert("end", line + "\n")
-    results_textbox.tag_config("red", foreground="red")
-    results_textbox.configure(state="disabled")
+        self.upload_tab_run_detection_btn = ctk.CTkButton(button_frame,
+                                                          text="Run Detection",
+                                                          command=self.run_detection,
+                                                          width=button_width,
+                                                          height=48,
+                                                          corner_radius=10,
+                                                          font=("Arial", button_font_size))
+        self.upload_tab_run_detection_btn.pack(side="left", padx=(10, 0))
 
-def update_upload_tab_buttons_visibility():
-    if tabs is None:
-        return
+        preview_frame = ctk.CTkFrame(upload_content, fg_color="#eaeaea", corner_radius=10)
+        preview_frame.pack(fill="both", expand=True, padx=pad_x, pady=(10, 0))
 
-# === Additional Responsive Utilities ===
-def refresh_responsive_elements():
-    """Refresh all responsive elements when needed"""
-    if tabs_created:
-        # Update fonts
-        update_header_font()
-        
-        # Update button sizes if they exist
-        if upload_tab_upload_btn:
-            button_width = max(min(int(app.winfo_width() * 0.12), 200), 120)  # Smaller for side-by-side
-            button_font_size = get_responsive_font_size(18)
-            upload_tab_upload_btn.configure(width=button_width, font=("Arial", button_font_size))
-            upload_tab_run_detection_btn.configure(width=button_width, font=("Arial", button_font_size))
-        
-        # Update results textbox font if it exists
-        if 'results_textbox' in globals():
-            results_font_size = get_responsive_font_size(14)
-            results_textbox.configure(font=("Arial", results_font_size))
-        
-        # Refresh image preview
-        if uploaded_image is not None:
-            show_preview_image(uploaded_image)
+        self.preview_img_label = ctk.CTkLabel(preview_frame,
+                                              text="No image uploaded",
+                                              fg_color="#eaeaea",
+                                              corner_radius=10)
+        self.preview_img_label.pack(expand=True, fill="both", padx=10, pady=10)
 
+        # Annotated Image tab
+        annotated_tab = self.tabs.tab("Annotated Image")
+        annotated_content = annotated_tab.winfo_children()[0]
 
-def on_mousewheel(event):
-        global zoom_level, offset_x, offset_y
-        if annotated_image is None:
+        self.annotated_canvas = ctk.CTkCanvas(annotated_content,
+                                              bg="gray90",
+                                              highlightthickness=0)
+        self.annotated_canvas.pack(fill="both", expand=True, padx=pad_x, pady=pad_y)
+        self.canvas_img_id = None
+
+        self.annotated_canvas.bind("<MouseWheel>", self._on_mousewheel)
+        self.annotated_canvas.bind("<Button-4>", self._on_mousewheel)
+        self.annotated_canvas.bind("<Button-5>", self._on_mousewheel)
+        self.annotated_canvas.bind("<ButtonPress-1>", self._on_pan_start)
+        self.annotated_canvas.bind("<B1-Motion>", self._on_pan_move)
+
+        # Results tab
+        results_tab = self.tabs.tab("Results")
+        results_content = results_tab.winfo_children()[0]
+
+        results_font_size = self._get_responsive_font_size(14)
+        self.results_textbox = ctk.CTkTextbox(results_content,
+                                              wrap="word",
+                                              fg_color="white",
+                                              font=("Arial", results_font_size),
+                                              corner_radius=10)
+        self.results_textbox.pack(fill="both", expand=True, padx=pad_x, pady=pad_y)
+        self.results_textbox.configure(state="disabled")
+
+        self._update_preview_tab()
+        self._update_annotated_tab()
+        self._update_results_tab()
+
+    # === Tab Updates ===
+
+    def _update_preview_tab(self):
+        if self.uploaded_image is None:
             return
-        # Get mouse position relative to canvas
+        self._show_preview_image(self.uploaded_image)
+
+    def _update_annotated_tab(self):
+        if self.annotated_image is None:
+            return
+        img_rgb = cv2.cvtColor(self.annotated_image, cv2.COLOR_BGR2RGB)
+        img_pil = Image.fromarray(img_rgb)
+        new_size = (int(img_pil.width * self.zoom_level), int(img_pil.height * self.zoom_level))
+        resized_img = img_pil.resize(new_size, Image.LANCZOS)
+        self.annotated_image_tk = ctk.CTkImage(light_image=resized_img, size=new_size)
+        self.annotated_canvas.delete("all")
+        canvas_image = ImageTk.PhotoImage(resized_img)
+        self.canvas_img_id = self.annotated_canvas.create_image(
+            self.offset_x, self.offset_y, anchor="nw", image=canvas_image)
+        self.annotated_canvas.image = canvas_image  # Keep a reference
+        self.annotated_canvas.config(scrollregion=(0, 0, new_size[0], new_size[1]))
+
+    def _update_results_tab(self):
+        self.results_textbox.configure(state="normal")
+        self.results_textbox.delete("0.0", "end")
+        for line in self.results_lines:
+            if "Out of Tolerance" in line:
+                self.results_textbox.insert("end", line + "\n", ("red",))
+            else:
+                self.results_textbox.insert("end", line + "\n")
+        self.results_textbox.tag_config("red", foreground="red")
+        self.results_textbox.configure(state="disabled")
+
+    # === Responsive ===
+
+    def _refresh_responsive_elements(self):
+        if not self.tabs_created:
+            return
+
+        self._update_header_font()
+
+        if self.upload_tab_upload_btn:
+            button_width = max(min(int(self.app.winfo_width() * 0.12), 200), 120)
+            button_font_size = self._get_responsive_font_size(18)
+            self.upload_tab_upload_btn.configure(width=button_width, font=("Arial", button_font_size))
+            self.upload_tab_run_detection_btn.configure(width=button_width, font=("Arial", button_font_size))
+
+        if self.results_textbox:
+            results_font_size = self._get_responsive_font_size(14)
+            self.results_textbox.configure(font=("Arial", results_font_size))
+
+        if self.uploaded_image is not None:
+            self._show_preview_image(self.uploaded_image)
+
+    def _on_window_resize(self, event=None):
+        if event and event.widget == self.app:
+            new_sidebar_width = self._get_responsive_sidebar_width()
+            self.sidebar.configure(width=new_sidebar_width)
+            self.app.after_idle(self._refresh_responsive_elements)
+
+    # === Zoom & Pan ===
+
+    def _on_mousewheel(self, event):
+        if self.annotated_image is None:
+            return
         mouse_x = event.x
         mouse_y = event.y
-        # Current zoom
-        old_zoom = zoom_level
+        old_zoom = self.zoom_level
         if event.num == 4 or event.delta > 0:
             zoom_factor = 1.1
         elif event.num == 5 or event.delta < 0:
             zoom_factor = 0.9
         else:
             return
-        new_zoom = zoom_level * zoom_factor
-        if new_zoom < min_zoom:
-            new_zoom = min_zoom
-        elif new_zoom > max_zoom:
-            new_zoom = max_zoom
-        if abs(new_zoom - zoom_level) < 0.001:
+        new_zoom = self.zoom_level * zoom_factor
+        if new_zoom < self.min_zoom:
+            new_zoom = self.min_zoom
+        elif new_zoom > self.max_zoom:
+            new_zoom = self.max_zoom
+        if abs(new_zoom - self.zoom_level) < 0.001:
             return
-        # Calculate new offset so that the point under the mouse stays under the mouse after zoom
-        # (mouse_x - offset_x) / old_zoom = (mouse_x - new_offset_x) / new_zoom
-        # Solve for new_offset_x:
-        # new_offset_x = mouse_x - ((mouse_x - offset_x) * new_zoom / old_zoom)
-        offset_x = mouse_x - ((mouse_x - offset_x) * new_zoom / old_zoom)
-        offset_y = mouse_y - ((mouse_y - offset_y) * new_zoom / old_zoom)
-        zoom_level = new_zoom
-        update_annotated_tab()
+        self.offset_x = mouse_x - ((mouse_x - self.offset_x) * new_zoom / old_zoom)
+        self.offset_y = mouse_y - ((mouse_y - self.offset_y) * new_zoom / old_zoom)
+        self.zoom_level = new_zoom
+        self._update_annotated_tab()
 
-def on_pan_start(event):
-    global pan_start_x, pan_start_y
-    pan_start_x = event.x
-    pan_start_y = event.y
+    def _on_pan_start(self, event):
+        self.pan_start_x = event.x
+        self.pan_start_y = event.y
 
-def on_pan_move(event):
-    global pan_start_x, pan_start_y, annotated_canvas, canvas_img_id, offset_x, offset_y
-    if canvas_img_id is None:
-        return
-    dx = event.x - pan_start_x
-    dy = event.y - pan_start_y
-    offset_x += dx
-    offset_y += dy
-    annotated_canvas.move(canvas_img_id, dx, dy)
-    pan_start_x = event.x
-    pan_start_y = event.y
+    def _on_pan_move(self, event):
+        if self.canvas_img_id is None:
+            return
+        dx = event.x - self.pan_start_x
+        dy = event.y - self.pan_start_y
+        self.offset_x += dx
+        self.offset_y += dy
+        self.annotated_canvas.move(self.canvas_img_id, dx, dy)
+        self.pan_start_x = event.x
+        self.pan_start_y = event.y
 
-# Show tabbed interface by default on launch (after create_tabs is defined and event handlers are defined)
-create_tabs()
-tabs_created = True
 
-# === Responsive Window Management ===
-def on_window_resize(event=None):
-    """Handle window resize events to update responsive elements"""
-    if event and event.widget == app:  # Only handle main window resize
-        # Update sidebar width
-        new_sidebar_width = get_responsive_sidebar_width()
-        sidebar.configure(width=new_sidebar_width)
-        
-        # Refresh all responsive elements
-        app.after_idle(refresh_responsive_elements)
-
-# Bind resize event
-app.bind("<Configure>", on_window_resize)
-
-# Initial responsive setup after window is realized
-app.after(100, lambda: refresh_responsive_elements())
-
-app.mainloop()
+if __name__ == "__main__":
+    app = LensQCApp()
+    app.run()
