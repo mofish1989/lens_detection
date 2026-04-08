@@ -16,10 +16,15 @@ This project is a Python-based application for automated lens inspection and qua
 
 ## Folder Structure
 
-- `GUI_13.py` — Main application code
-- `200x_lens.pt`, `40x_rectt.pt`, `outer_rect.pt`, `defects.pt` — YOLO model files
+- `app.py` — UI class, layout, event binding, tab management (entry point)
+- `constants.py` — Measurement targets, tolerances, pixel scales, profiles, annotation colors/params
+- `detection.py` — Detection algorithms: `detect_profile()`, `detect_rectangles_40x()`, `detect_and_annotate_lenses()`, `detect_defects()`, YOLO model loading
+- `history.py` — `save_results()`, history directory management, timestamped file writing
+- `GUI_13.py` — Legacy monolithic version (kept as backup)
+- `200x_lens.pt`, `40x_rectt.pt`, `outer_rect.pt`, `defects.pt`, `circle.pt` — YOLO model files
 - `history/` — Output folder for annotated images and results
   - `measurements/40x/` — Rectangle measurement results
+  - `measurements/80x/` — 80x measurement results
   - `measurements/200x/` — Lens measurement results
   - `defects/` — Defect detection results
 
@@ -43,7 +48,7 @@ This project is a Python-based application for automated lens inspection and qua
 
 3. **Run the Application:**
    ```powershell
-   python GUI_13.py
+   python app.py
    ```
 
 ### LSP_Algo.py (Algorithm Testing)
