@@ -8,7 +8,7 @@ RECT_TOL = 0.010
 TARGET_LENS_DIAMETER = 0.240
 LENS_TOL = 0.005
 
-PIXEL_SCALES = {"40x": 387, "80x": 776, "200x": 1940}
+PIXEL_SCALES = {"40x": 387, "80x": 780, "200x": 1940}
 
 # === Annotation Colors (BGR) ===
 COLOR_OK = (0, 255, 0)           # Green – within tolerance
