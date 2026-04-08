@@ -52,6 +52,7 @@ class LensQCApp:
         self.upload_tab_upload_btn = None
         self.upload_tab_run_detection_btn = None
         self.preview_img_label = None
+        self.preview_frame = None
 
         self._resize_after_id = None
         self._last_window_size = (0, 0)
@@ -242,40 +243,80 @@ class LensQCApp:
             return
         self.uploaded_image = img
         self.uploaded_image_path = path
+        self.annotated_image = None
+        self.results_lines = []
         self.zoom_level = 1.0
+        self.offset_x = 0
+        self.offset_y = 0
         self._show_preview_image(img)
+        self._update_annotated_tab()
+        self._update_results_tab()
         if self.upload_tab_run_detection_btn:
             self.upload_tab_run_detection_btn.configure(state="normal")
 
     def _show_preview_image(self, img):
         img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         img_pil = Image.fromarray(img_rgb)
-        aspect_ratio = img_pil.width / img_pil.height
-
-        window_width = self.app.winfo_width()
-        window_height = self.app.winfo_height()
-        available_width = max(window_width - 400, 400)
-        available_height = max(window_height - 180, 500)
-
-        scale_w = (available_width * 0.95) / img_pil.width
-        scale_h = (available_height * 0.95) / img_pil.height
-        scale = min(scale_w, scale_h)
-
-        target_width = int(img_pil.width * scale)
-        target_height = int(img_pil.height * scale)
-
-        if target_width > available_width:
-            target_width = int(available_width * 0.95)
-            target_height = int(target_width / aspect_ratio)
-        if target_height > available_height:
-            target_height = int(available_height * 0.95)
-            target_width = int(target_height * aspect_ratio)
+        available_width, available_height = self._get_preview_area_size()
+        target_width, target_height = self._get_fit_size(
+            img_pil.width,
+            img_pil.height,
+            available_width,
+            available_height,
+            allow_upscale=False,
+        )
 
         img_pil = img_pil.resize((target_width, target_height), Image.LANCZOS)
         self.image_preview_tk = ctk.CTkImage(light_image=img_pil, size=(target_width, target_height))
 
         if self.preview_img_label:
             self.preview_img_label.configure(image=self.image_preview_tk, text="")
+
+    def _get_fit_size(self, image_width, image_height, available_width, available_height, allow_upscale=True):
+        safe_width = max(int(available_width), 1)
+        safe_height = max(int(available_height), 1)
+        scale = min(safe_width / image_width, safe_height / image_height)
+        if not allow_upscale:
+            scale = min(scale, 1.0)
+        target_width = max(int(image_width * scale), 1)
+        target_height = max(int(image_height * scale), 1)
+        return target_width, target_height
+
+    def _get_preview_area_size(self):
+        if self.preview_img_label and self.preview_img_label.winfo_exists():
+            self.preview_img_label.update_idletasks()
+            label_width = self.preview_img_label.winfo_width() - 20
+            label_height = self.preview_img_label.winfo_height() - 20
+            if label_width > 1 and label_height > 1:
+                return label_width, label_height
+
+        if self.preview_frame and self.preview_frame.winfo_exists():
+            self.preview_frame.update_idletasks()
+            frame_width = self.preview_frame.winfo_width() - 20
+            frame_height = self.preview_frame.winfo_height() - 20
+            if frame_width > 1 and frame_height > 1:
+                return frame_width, frame_height
+
+        window_width = self.app.winfo_width()
+        window_height = self.app.winfo_height()
+        return max(window_width - 400, 400), max(window_height - 180, 500)
+
+    def _fit_annotated_image_to_canvas(self):
+        if self.annotated_image is None or self.annotated_canvas is None:
+            return
+
+        self.annotated_canvas.update_idletasks()
+        canvas_width = self.annotated_canvas.winfo_width()
+        canvas_height = self.annotated_canvas.winfo_height()
+        if canvas_width <= 1 or canvas_height <= 1:
+            self.app.after(50, self._fit_annotated_image_to_canvas)
+            return
+
+        image_height, image_width = self.annotated_image.shape[:2]
+        fit_width, fit_height = self._get_fit_size(image_width, image_height, canvas_width, canvas_height)
+        self.zoom_level = max(min(fit_width / image_width, self.max_zoom), self.min_zoom)
+        self.offset_x = max((canvas_width - fit_width) / 2, 0)
+        self.offset_y = max((canvas_height - fit_height) / 2, 0)
 
     # === Detection ===
 
@@ -331,6 +372,7 @@ class LensQCApp:
 
         self.annotated_image = annotated
         self.results_lines = results_text
+        self._fit_annotated_image_to_canvas()
 
         # --- Auto-save annotated image ---
         if self.annotated_image is not None:
@@ -340,6 +382,8 @@ class LensQCApp:
         self._update_preview_tab()
         self._update_annotated_tab()
         self._update_results_tab()
+        if self.tabs is not None:
+            self.tabs.set("Annotated Image")
 
     # === Tabs ===
 
@@ -413,10 +457,10 @@ class LensQCApp:
                                                           font=("Arial", button_font_size))
         self.upload_tab_run_detection_btn.pack(side="left", padx=(10, 0))
 
-        preview_frame = ctk.CTkFrame(upload_content, fg_color="#eaeaea", corner_radius=10)
-        preview_frame.pack(fill="both", expand=True, padx=pad_x, pady=(10, 0))
+        self.preview_frame = ctk.CTkFrame(upload_content, fg_color="#eaeaea", corner_radius=10)
+        self.preview_frame.pack(fill="both", expand=True, padx=pad_x, pady=(10, 0))
 
-        self.preview_img_label = ctk.CTkLabel(preview_frame,
+        self.preview_img_label = ctk.CTkLabel(self.preview_frame,
                                               text="No image uploaded",
                                               fg_color="#eaeaea",
                                               corner_radius=10)
@@ -464,10 +508,16 @@ class LensQCApp:
 
     def _update_annotated_tab(self):
         if self.annotated_image is None:
+            if self.annotated_canvas is not None:
+                self.annotated_canvas.delete("all")
+                self.annotated_canvas.image = None
             return
         img_rgb = cv2.cvtColor(self.annotated_image, cv2.COLOR_BGR2RGB)
         img_pil = Image.fromarray(img_rgb)
-        new_size = (int(img_pil.width * self.zoom_level), int(img_pil.height * self.zoom_level))
+        new_size = (
+            max(int(img_pil.width * self.zoom_level), 1),
+            max(int(img_pil.height * self.zoom_level), 1),
+        )
         resized_img = img_pil.resize(new_size, Image.LANCZOS)
         self.annotated_image_tk = ctk.CTkImage(light_image=resized_img, size=new_size)
         self.annotated_canvas.delete("all")
