@@ -128,14 +128,37 @@ def detect_rectangles_40x(image, pixel_scale):
         rv1, rv2 = [], []
         mid = (h // 2) if axis == 'x' else (w // 2)
         intensity_ceiling = 250
+        black_threshold = 20  # Threshold to detect black pixels at boundary
         
         for coord in scan_range:
             line_data = gray[:, coord].astype(float) if axis == 'y' else gray[coord, :].astype(float)
             
             if mode == 'inward':
-                indices = range(len(line_data)-1-confirm_pix, mid, -1) if direction == 'high' else range(confirm_pix, mid)
-            else:
-                indices = range(mid + 25, len(line_data)-confirm_pix) if direction == 'high' else range(mid - 25, confirm_pix, -1)
+                if direction == 'high':
+                    # Scan from the edge inward, skip black boundary pixels
+                    start_idx = len(line_data) - 1 - confirm_pix
+                    while start_idx > mid and line_data[start_idx] < black_threshold:
+                        start_idx -= 1
+                    indices = range(start_idx, mid, -1)
+                else:  # direction == 'low'
+                    # Scan from the edge inward, skip black boundary pixels
+                    start_idx = confirm_pix
+                    while start_idx < mid and line_data[start_idx] < black_threshold:
+                        start_idx += 1
+                    indices = range(start_idx, mid)
+            else:  # mode == 'outward'
+                if direction == 'high':
+                    # Scan outward from center, skip black boundary pixels
+                    start_idx = mid + 25
+                    while start_idx < len(line_data) - confirm_pix and line_data[start_idx] < black_threshold:
+                        start_idx += 1
+                    indices = range(start_idx, len(line_data) - confirm_pix)
+                else:  # direction == 'low'
+                    # Scan outward from center, skip black boundary pixels
+                    start_idx = mid - 25
+                    while start_idx > confirm_pix and line_data[start_idx] < black_threshold:
+                        start_idx -= 1
+                    indices = range(start_idx, confirm_pix, -1)
             
             for i in indices:
                 pixel_val = line_data[i]
