@@ -52,7 +52,7 @@ This project is a Python-based application for automated lens inspection and qua
 **Workflow:**
 
 - Upload a microscope image.
-- Select mode (measurement or defect) and zoom level (40x or 200x).
+- Select mode (measurement or defect) and zoom level (40x / 80x / 200x).
 - Run detection to view annotated results and measurements.
 - Annotated images and text results are auto-saved in the `history/` folder.
 
