@@ -7,7 +7,7 @@ from constants import (
     PIXEL_SCALES,
     FONT_SCALE_200X, THICKNESS_200X, FONT_SCALE_40X, THICKNESS_40X,
 )
-from detection import detect_rectangles_40x, detect_and_annotate_lenses, detect_defects
+from detection import detect_rectangles, detect_and_annotate_lenses, detect_defects
 from history import save_results
 
 
@@ -343,7 +343,7 @@ class LensQCApp:
             # --- Rectangle Measurement Logic ---
             elif self.measure_type == "rectangle":
                 # Use edge detection method for rectangles
-                annotated, rect_results = detect_rectangles_40x(self.uploaded_image, pixel_scale)
+                annotated, rect_results = detect_rectangles(self.uploaded_image, pixel_scale)
 
                 results_text.append("=== Rectangle Measurements ===")
                 for result in rect_results:

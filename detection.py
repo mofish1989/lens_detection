@@ -22,7 +22,7 @@ model_defects = YOLO("defects.pt")
 
 
 def detect_profile(image):
-    """Detect the image profile based on color characteristics for 40x rectangle detection."""
+    """Detect the image profile based on color characteristics for rectangle detection."""
     hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
@@ -63,9 +63,9 @@ def detect_profile(image):
         return "grey_dark"
 
 
-def detect_rectangles_40x(image, pixel_scale):
+def detect_rectangles(image, pixel_scale):
     """
-    Detect outer and inner rectangles in 40x images using edge detection and line fitting.
+    Detect outer and inner rectangles using edge detection and line fitting.
     Returns annotated image and measurement results.
     """
     # Detect profile

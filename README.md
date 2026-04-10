@@ -5,26 +5,25 @@ This project is a Python-based application for automated lens inspection and qua
 ## Features
 
 - **Lens Measurement (200x):** Detects circular lenses, measures diameters, and validates against tolerance.
-- **Rectangle Measurement (40x):** Detects outer and inner rectangular regions using edge detection and RANSAC line fitting, checks dimensions against standards.
-- **Rectangle Measurement (200x):** Uses YOLO segmentation model for outer rectangle detection and measurement.
-- **Automatic Profile Detection (40x):** Automatically classifies images into one of 6 color profiles (blue, dark, grey_light, grey_dark, yellow_dark, yellow_light) and applies optimized detection parameters for each.
+- **Rectangle Measurement:** Detects outer and inner rectangular regions using edge detection and RANSAC line fitting, checks dimensions against standards. Works at all zoom levels (40x, 80x, 200x).
+- **Automatic Profile Detection:** Automatically classifies images into one of 6 color profiles (blue, dark, grey_light, grey_dark, yellow_dark, yellow_light) and applies optimized detection parameters for each.
 - **Defect Detection:** Identifies visual defects in lens samples.
 - **Image Annotation:** Annotates detected objects and measurements directly on images.
 - **Results Output:** Saves annotated images and measurement/defect results as text files in organized folders.
-- **Configurable Pixel Scale:** Pixel-to-mm scale for both 40x and 200x can be adjusted at runtime via the sidebar.
+- **Configurable Pixel Scale:** Pixel-to-mm scale for both 40x, 80x and 200x can be adjusted at runtime via the sidebar.
 - **Modern GUI:** Built with CustomTkinter, featuring responsive layout, tabbed views, zoom/pan, and real-time status updates.
 
 ## Folder Structure
 
 - `app.py` — UI class, layout, event binding, tab management (entry point)
 - `constants.py` — Measurement targets, tolerances, pixel scales, profiles, annotation colors/params
-- `detection.py` — Detection algorithms: `detect_profile()`, `detect_rectangles_40x()`, `detect_and_annotate_lenses()`, `detect_defects()`, YOLO model loading
+- `detection.py` — Detection algorithms: `detect_profile()`, `detect_rectangles()`, `detect_and_annotate_lenses()`, `detect_defects()`, YOLO model loading
 - `history.py` — `save_results()`, history directory management, timestamped file writing
 - `circle.pt`, `defects.pt` — YOLO model files
 - `history/` — Output folder for annotated images and results
-  - `measurements/40x/` — Rectangle measurement results
+  - `measurements/40x/` — 40x measurement results
   - `measurements/80x/` — 80x measurement results
-  - `measurements/200x/` — Lens measurement results
+  - `measurements/200x/` — 200x measurement results
   - `defects/` — Defect detection results
 
 ## Setup & Installation
@@ -58,26 +57,11 @@ This project is a Python-based application for automated lens inspection and qua
 
 ## Measurement Standards
 
-- **Lens Diameter (200x):** Target = 0.240 mm, Tolerance = ±0.005 mm
-- **Rectangle (40x):**
+- **Lens Diameter:** Target = 0.240 mm, Tolerance = ±0.005 mm
+- **Rectangle:**
   - Outer: 7.00 mm × 4.90 mm, Tolerance = ±0.010 mm
   - Inner: 5.60 mm × 2.40 mm, Tolerance = ±0.010 mm
-- **Pixel Scales (default):** 40x = 387 px/mm, 200x = 1940 px/mm (configurable at runtime)
-
-## Image Profile Detection (40x)
-
-The application automatically classifies 40x images into one of 6 profiles based on color and contrast metrics, then applies profile-specific edge detection parameters:
-
-| Profile          | Detection Criteria                            | Description                      |
-| ---------------- | --------------------------------------------- | -------------------------------- |
-| **yellow_dark**  | Yellow hue >5%, avg_val < 132 or avg_sat > 78 | Dark yellow-tinted samples       |
-| **yellow_light** | Yellow hue >5%, otherwise                     | Light yellow-tinted samples      |
-| **blue**         | avg_sat > 50                                  | High-saturation (blue) samples   |
-| **dark**         | contrast_score ≥ 28                           | High-contrast dark samples       |
-| **grey_light**   | contrast < 28, avg_val ≥ 160                  | Low-contrast bright grey samples |
-| **grey_dark**    | contrast < 28, avg_val < 160                  | Low-contrast dim grey samples    |
-
-Each profile has tuned parameters for outer/inner threshold calculation, edge confirmation pixels, and deep scan depth.
+- **Pixel Scales (default):** 40x = 387 px/mm, 80x = 780 px/mm, 200x = 1940 px/mm (configurable at runtime)
 
 ## UI Conventions
 
