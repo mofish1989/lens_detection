@@ -20,8 +20,7 @@ This project is a Python-based application for automated lens inspection and qua
 - `constants.py` — Measurement targets, tolerances, pixel scales, profiles, annotation colors/params
 - `detection.py` — Detection algorithms: `detect_profile()`, `detect_rectangles_40x()`, `detect_and_annotate_lenses()`, `detect_defects()`, YOLO model loading
 - `history.py` — `save_results()`, history directory management, timestamped file writing
-- `GUI_13.py` — Legacy monolithic version (kept as backup)
-- `200x_lens.pt`, `40x_rectt.pt`, `outer_rect.pt`, `defects.pt`, `circle.pt` — YOLO model files
+- `circle.pt`, `defects.pt` — YOLO model files
 - `history/` — Output folder for annotated images and results
   - `measurements/40x/` — Rectangle measurement results
   - `measurements/80x/` — 80x measurement results
@@ -30,12 +29,9 @@ This project is a Python-based application for automated lens inspection and qua
 
 ## Setup & Installation
 
-### GUI Application (Main)
-
 1. **Create Virtual Environment:**
 
    ```powershell
-   cd C:\YJ\SP\LSP\lens_detection
    python -m venv venv
    .\venv\Scripts\Activate.ps1
    ```
@@ -43,48 +39,12 @@ This project is a Python-based application for automated lens inspection and qua
 2. **Install Dependencies:**
 
    ```powershell
-   pip install customtkinter opencv-python pillow ultralytics scikit-learn scipy
+   pip install -r requirements.txt
    ```
 
 3. **Run the Application:**
    ```powershell
    python app.py
-   ```
-
-### LSP_Algo.py (Algorithm Testing)
-
-For testing the lens detection algorithm standalone:
-
-1. **Create Algorithm Environment:**
-
-   ```powershell
-   cd C:\YJ\SP\LSP\lens_detection
-   python -m venv algo_env
-   .\algo_env\Scripts\Activate.ps1
-   ```
-
-2. **Install Dependencies:**
-
-   ```powershell
-   pip install -r requirements_algo.txt
-   ```
-
-   Or manually:
-
-   ```powershell
-   pip install opencv-python numpy matplotlib
-   ```
-
-3. **Update Image Path:**
-   Edit `LSP_Algo.py` and set your image path:
-
-   ```python
-   image_path = r"C:\YJ\SP\LSP\lens_detection\your_image.jpg"
-   ```
-
-4. **Run the Algorithm:**
-   ```powershell
-   python LSP_Algo.py
    ```
 
 ## Usage
@@ -136,9 +96,7 @@ Each profile has tuned parameters for outer/inner threshold calculation, edge co
 
 Place the YOLO `.pt` model files in the project root. Models used:
 
-- `200x_lens.pt` — Lens detection (200x)
-- `40x_rectt.pt` — Rectangle detection (40x)
-- `outer_rect.pt` — Rectangle segmentation
+- `circle.pt` — Lens/circle detection
 - `defects.pt` — Defect detection
 
 ## Error Handling

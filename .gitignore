@@ -1,1 +1,7 @@
 history/
+__pycache__/
+*.pyc
+*.pyo
+ml_venv/
+venv/
+.env/

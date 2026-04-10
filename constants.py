@@ -37,9 +37,7 @@ MASK_THRESHOLD = 0.5
 PROFILES = {
     "blue": {"outer": (4.0, 1.5, 2.0), "inner": (3.0, 1.5, 2.5), "confirm": 12, "deep_scan": 12},
     "dark_dark": {"outer": (30.0, 2.5, 2.0), "inner": (12.0, 4.0, 1.2), "confirm": 5, "deep_scan": 0},
-    # "dark_dark": {"outer": (40.0, 5.0, 1.8), "inner": (12.0, 4.0, 1.2), "confirm": 5, "deep_scan": 0},
     "dark_light": {"outer": (45.0, 1.5, 2.0), "inner": (50.0, 4.0, 1.5), "confirm": 6, "deep_scan": 6},
-    # "dark_light": {"outer": (40.0, 5.0, 1.5), "inner": (25.0, 2.0, 1.8), "confirm": 5, "deep_scan": 3},
     "grey_light": {"outer": (2.0, 1.2, 2.8), "inner": (1.2, 1.5, 2.0), "confirm": 5, "deep_scan": 3},
     "grey_dark": {"outer": (2.5, 1.2, 2.0), "inner": (2.0, 2.0, 2.0), "confirm": 5, "deep_scan": 6},
     "yellow_dark": {"outer": (4.0, 1.5, 2.0), "inner": (15.0, 2.5, 2.0), "confirm": 6, "deep_scan": 3},

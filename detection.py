@@ -17,11 +17,8 @@ from constants import (
 )
 
 # === Load YOLO Models ===
-# model_lens = YOLO("200x_lens.pt")       # For lens/circles
-model_lens = YOLO("circle.pt")       # For lens/circles
-# model_rectangle = YOLO("outer_rect.pt")  # For rectangles (out - segmentation model)
-# model_rectangle = YOLO("40x_rectt.pt")  # For rectangles (in/out)
-model_defects = YOLO("defects.pt")      # For defect detection
+model_lens = YOLO("circle.pt")
+model_defects = YOLO("defects.pt")
 
 
 def detect_profile(image):
@@ -41,15 +38,12 @@ def detect_profile(image):
     yellow_pct = np.count_nonzero(yellow_mask) / yellow_mask.size
     if yellow_pct > 0.05:
         if avg_val < 132 or avg_sat > 78:
-            print(f"Yellow Dark - Avg Saturation: {avg_sat:.2f}, Avg Value: {avg_val:.2f}, Contrast Score: {contrast_score:.2f}")
             return "yellow_dark"
         else:
-            print(f"Yellow Light - Avg Saturation: {avg_sat:.2f}, Avg Value: {avg_val:.2f}, Contrast Score: {contrast_score:.2f}")
             return "yellow_light"
 
     # 2. Identify the 'Blue' Profile (Strong Saturation)
     if avg_sat > 50:
-        print(f"Blue Profile - Avg Saturation: {avg_sat:.2f}, Avg Value: {avg_val:.2f}, Contrast Score: {contrast_score:.2f}")
         return "blue"
 
     # 3. Differentiate Dark Dark, Dark Light vs Grey/Yellow using Contrast and Avg Value
@@ -57,19 +51,15 @@ def detect_profile(image):
         # Use Avg Value to distinguish dark_dark from dark_light based on common ranges
         # Dark_dark typical Avg_Val: 98-140
         # Dark_light typical Avg_Val: 197-202
-        if avg_val > 170: 
-            print(f"Dark Light Profile - Avg Saturation: {avg_sat:.2f}, Avg Value: {avg_val:.2f}, Contrast Score: {contrast_score:.2f}")
+        if avg_val > 170:
             return "dark_light"
         else:
-            print(f"Dark Dark Profile - Avg Saturation: {avg_sat:.2f}, Avg Value: {avg_val:.2f}, Contrast Score: {contrast_score:.2f}")
             return "dark_dark"
 
     # 4. Differentiate Grey Light vs Grey Dark using Brightness
     if avg_val >= 160:
-        print(f"Grey Light - Avg Saturation: {avg_sat:.2f}, Avg Value: {avg_val:.2f}, Contrast Score: {contrast_score:.2f}")
         return "grey_light"
     else:
-        print(f"Grey Dark - Avg Saturation: {avg_sat:.2f}, Avg Value: {avg_val:.2f}, Contrast Score: {contrast_score:.2f}")
         return "grey_dark"
 
 
@@ -81,11 +71,6 @@ def detect_rectangles_40x(image, pixel_scale):
     # Detect profile
     active_case = detect_profile(image)
     p = PROFILES[active_case]
-    print(
-        f"[RectDetect] Profile={active_case} "
-        f"outer_params={p['outer']} inner_params={p['inner']} "
-        f"confirm={p['confirm']} deep_scan={p['deep_scan']}"
-    )
     
     # Preprocessing based on profile
     if "yellow" in active_case:
@@ -139,14 +124,6 @@ def detect_rectangles_40x(image, pixel_scale):
     thresh_inner = calc_thresh(bg_std_inner, p["inner"])
     confirm_pix = p["confirm"]
     deep_scan_val = p["deep_scan"]
-    print(
-        f"[RectDetect] bg_outer(avg={bg_avg_outer:.2f}, iqr={bg_std_outer:.2f}) "
-        f"bg_inner(avg={bg_avg_inner:.2f}, iqr={bg_std_inner:.2f}) "
-        f"thresh_outer={thresh_outer:.2f} thresh_inner={thresh_inner:.2f}"
-    )
-    
-    # Scan zone definitions
-    print(f"[RectDetect] image h={h} w={w}  mid_x={w//2}  mid_y={h//2}")
     
     # Scan zone definitions
     outer_v_range_top = np.concatenate([np.arange(int(w*0.05), int(w*0.25)), np.arange(int(w*0.75), int(w*0.95))])
@@ -310,11 +287,6 @@ def detect_rectangles_40x(image, pixel_scale):
                 intersect(lines['bottom'], lines['left'])
             ]
 
-            print(
-                f"[RectDetect] {cfg['name']} corners(px) "
-                f"TL={pts[0]} TR={pts[1]} BR={pts[2]} BL={pts[3]}"
-            )
-            
             box = np.array(pts, np.int32)
             
             width = np.linalg.norm(np.array(pts[0]) - np.array(pts[1]))
@@ -356,12 +328,7 @@ def detect_rectangles_40x(image, pixel_scale):
                 'length_ok': length_tol,
                 'breadth_ok': breadth_tol
             })
-            print(
-                f"[RectDetect] {cfg['name']} size(mm) "
-                f"L={length_mm:.3f} B={breadth_mm:.3f} in_tol={in_tol}"
-            )
         else:
-            print(f"[RectDetect] {cfg['name']} not detected (insufficient edge points / line fit failed)")
             results.append({
                 'name': cfg['name'],
                 'error': 'Could not detect rectangle boundaries'
