@@ -81,6 +81,11 @@ def detect_rectangles_40x(image, pixel_scale):
     # Detect profile
     active_case = detect_profile(image)
     p = PROFILES[active_case]
+    print(
+        f"[RectDetect] Profile={active_case} "
+        f"outer_params={p['outer']} inner_params={p['inner']} "
+        f"confirm={p['confirm']} deep_scan={p['deep_scan']}"
+    )
     
     # Preprocessing based on profile
     if "yellow" in active_case:
@@ -101,8 +106,26 @@ def detect_rectangles_40x(image, pixel_scale):
     c_size, c_mid = 15, 10
     corners = [gray[0:c_size, 0:c_size], gray[0:c_size, -c_size:],
                gray[-c_size:, 0:c_size], gray[-c_size:, -c_size:]]
-    bg_avg_outer = np.median([np.mean(c) for c in corners])
-    bg_std_outer = np.median([iqr(c) for c in corners])
+
+    # Build outer background from non-black corner pixels to avoid black-border corruption
+    all_corner_px = np.concatenate([c.flatten() for c in corners])
+    non_black_px = all_corner_px[all_corner_px > 25]
+    if len(non_black_px) >= 10:
+        bg_avg_outer = float(np.median(non_black_px))
+        bg_std_outer = float(np.std(non_black_px))
+    else:
+        # All corners are black — fall back to near-edge border strips
+        border_px = max(25, int(min(h, w) * 0.03))
+        strips = np.concatenate([
+            gray[:border_px, :].flatten(),
+            gray[-border_px:, :].flatten(),
+            gray[:, :border_px].flatten(),
+            gray[:, -border_px:].flatten()
+        ])
+        non_black_strips = strips[strips > 25]
+        bg_avg_outer = float(np.median(non_black_strips)) if len(non_black_strips) >= 20 else 128.0
+        bg_std_outer = float(np.std(non_black_strips)) if len(non_black_strips) >= 20 else 30.0
+    bg_std_outer = float(np.clip(bg_std_outer, 0, 40))  # cap to prevent threshold explosion
     
     center_roi = gray[h//2-c_mid : h//2+c_mid, w//2-c_mid : w//2+c_mid]
     bg_avg_inner = np.mean(center_roi)
@@ -116,6 +139,14 @@ def detect_rectangles_40x(image, pixel_scale):
     thresh_inner = calc_thresh(bg_std_inner, p["inner"])
     confirm_pix = p["confirm"]
     deep_scan_val = p["deep_scan"]
+    print(
+        f"[RectDetect] bg_outer(avg={bg_avg_outer:.2f}, iqr={bg_std_outer:.2f}) "
+        f"bg_inner(avg={bg_avg_inner:.2f}, iqr={bg_std_inner:.2f}) "
+        f"thresh_outer={thresh_outer:.2f} thresh_inner={thresh_inner:.2f}"
+    )
+    
+    # Scan zone definitions
+    print(f"[RectDetect] image h={h} w={w}  mid_x={w//2}  mid_y={h//2}")
     
     # Scan zone definitions
     outer_v_range_top = np.concatenate([np.arange(int(w*0.05), int(w*0.25)), np.arange(int(w*0.75), int(w*0.95))])
@@ -126,9 +157,36 @@ def detect_rectangles_40x(image, pixel_scale):
     
     def get_raw_points(scan_range, thresh, axis='y', mode='inward', direction='low', ref_bg=128, dot_color=(255,0,0)):
         rv1, rv2 = [], []
-        mid = (h // 2) if axis == 'x' else (w // 2)
+        # axis='y' scans a column (indices are y, 0..h-1) → mid = h//2
+        # axis='x' scans a row  (indices are x, 0..w-1) → mid = w//2
+        mid = (w // 2) if axis == 'x' else (h // 2)
         intensity_ceiling = 250
-        black_threshold = 20  # Threshold to detect black pixels at boundary
+        black_threshold = 28  # Reject black-border pixels as false edges
+        edge_margin = max(confirm_pix, int(len(gray) * 0.02 if axis == 'y' else w * 0.02))
+        min_grad = max(10.0, thresh * 0.30)
+
+        def is_valid_candidate(i, step, line):
+            pixel_val = line[i]
+            if pixel_val <= black_threshold or pixel_val >= intensity_ceiling:
+                return False
+
+            diff = abs(pixel_val - ref_bg)
+            if diff <= thresh:
+                return False
+
+            left = line[max(i - 1, 0)]
+            right = line[min(i + 1, len(line) - 1)]
+            if abs(right - left) < min_grad:
+                return False
+
+            # Require sustained deviation to suppress one-pixel noise and text specks.
+            confirm_len = max(4, confirm_pix)
+            win = [i + (k * step) for k in range(confirm_len)]
+            win = [idx for idx in win if 0 <= idx < len(line)]
+            if not win:
+                return False
+            strong = sum(1 for idx in win if abs(line[idx] - ref_bg) > (thresh * 0.70) and line[idx] > black_threshold)
+            return strong >= max(3, int(0.60 * len(win)))
         
         for coord in scan_range:
             line_data = gray[:, coord].astype(float) if axis == 'y' else gray[coord, :].astype(float)
@@ -136,38 +194,42 @@ def detect_rectangles_40x(image, pixel_scale):
             if mode == 'inward':
                 if direction == 'high':
                     # Scan from the edge inward, skip black boundary pixels
-                    start_idx = len(line_data) - 1 - confirm_pix
+                    start_idx = len(line_data) - 1 - edge_margin
                     while start_idx > mid and line_data[start_idx] < black_threshold:
                         start_idx -= 1
                     indices = range(start_idx, mid, -1)
                 else:  # direction == 'low'
                     # Scan from the edge inward, skip black boundary pixels
-                    start_idx = confirm_pix
+                    start_idx = edge_margin
                     while start_idx < mid and line_data[start_idx] < black_threshold:
                         start_idx += 1
                     indices = range(start_idx, mid)
             else:  # mode == 'outward'
+                # Skip a proportional zone around the center so minor artifacts
+                # near mid don't trigger (25 px was way too small for high-res images).
+                outward_offset = max(25, int(len(line_data) * 0.10))
                 if direction == 'high':
-                    # Scan outward from center, skip black boundary pixels
-                    start_idx = mid + 25
-                    while start_idx < len(line_data) - confirm_pix and line_data[start_idx] < black_threshold:
+                    start_idx = mid + outward_offset
+                    while start_idx < len(line_data) - edge_margin and line_data[start_idx] < black_threshold:
                         start_idx += 1
-                    indices = range(start_idx, len(line_data) - confirm_pix)
+                    indices = range(start_idx, len(line_data) - edge_margin)
                 else:  # direction == 'low'
-                    # Scan outward from center, skip black boundary pixels
-                    start_idx = mid - 25
-                    while start_idx > confirm_pix and line_data[start_idx] < black_threshold:
+                    start_idx = mid - outward_offset
+                    while start_idx > edge_margin and line_data[start_idx] < black_threshold:
                         start_idx -= 1
-                    indices = range(start_idx, confirm_pix, -1)
+                    indices = range(start_idx, edge_margin, -1)
             
             for i in indices:
-                pixel_val = line_data[i]
-                if abs(pixel_val - ref_bg) > thresh and pixel_val < intensity_ceiling:
+                step = 1 if (mode == 'inward' and direction == 'low') or (mode == 'outward' and direction == 'high') else -1
+                if is_valid_candidate(i, step, line_data):
                     if deep_scan_val > 0:
-                        step = 1 if (mode == 'inward' and direction == 'low') or (mode == 'outward' and direction == 'high') else -1
                         win_indices = [i + (s * step) for s in range(deep_scan_val)]
                         win_indices = [idx for idx in win_indices if 0 <= idx < len(line_data)]
-                        win_values = [abs(line_data[idx] - ref_bg) if line_data[idx] < intensity_ceiling else 0 for idx in win_indices]
+                        win_values = [
+                            abs(line_data[idx] - ref_bg)
+                            if black_threshold < line_data[idx] < intensity_ceiling else 0
+                            for idx in win_indices
+                        ]
                         peak_local_idx = np.argmax(win_values)
                         edge_idx = win_indices[peak_local_idx]
                     else:
@@ -247,6 +309,11 @@ def detect_rectangles_40x(image, pixel_scale):
                 intersect(lines['bottom'], lines['right']),
                 intersect(lines['bottom'], lines['left'])
             ]
+
+            print(
+                f"[RectDetect] {cfg['name']} corners(px) "
+                f"TL={pts[0]} TR={pts[1]} BR={pts[2]} BL={pts[3]}"
+            )
             
             box = np.array(pts, np.int32)
             
@@ -289,7 +356,12 @@ def detect_rectangles_40x(image, pixel_scale):
                 'length_ok': length_tol,
                 'breadth_ok': breadth_tol
             })
+            print(
+                f"[RectDetect] {cfg['name']} size(mm) "
+                f"L={length_mm:.3f} B={breadth_mm:.3f} in_tol={in_tol}"
+            )
         else:
+            print(f"[RectDetect] {cfg['name']} not detected (insufficient edge points / line fit failed)")
             results.append({
                 'name': cfg['name'],
                 'error': 'Could not detect rectangle boundaries'
