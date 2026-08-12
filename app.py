@@ -137,7 +137,7 @@ class LensQCApp:
         self.sidebar.pack_propagate(False)
 
         self.project_label = ctk.CTkLabel(self.sidebar, text="Lens Quality Check",
-                                          font=("Arial", 26, "bold"), wraplength=1000)
+        font=("Arial", 26, "bold"), wraplength=1000)
         self.project_label.pack(pady=15)
 
         logo1_img = _load_logo_image("lsp-logo.png")
@@ -161,23 +161,23 @@ class LensQCApp:
         mode_label = ctk.CTkLabel(self.sidebar, text="Mode:", font=("Arial", 18, "bold"))
         mode_label.pack(pady=(0, 5), padx=70, anchor="w")
         ctk.CTkOptionMenu(self.sidebar, variable=self.mode_var,
-                          values=["measurement", "defect"],
-                          width=200, height=40, font=("Arial", 18),
-                          dropdown_font=("Arial", 17), corner_radius=10).pack(pady=(0, 20))
+        values=["measurement", "defect"],
+        width=200, height=40, font=("Arial", 18),
+        dropdown_font=("Arial", 17), corner_radius=10).pack(pady=(0, 20))
 
         # Zoom dropdown
         self.zoom_var = ctk.StringVar(value="40x")
         ctk.CTkOptionMenu(self.sidebar, variable=self.zoom_var,
-                          values=["40x", "80x", "200x"],
-                          command=lambda _: self._update_measurement_type(),
-                          width=200, height=40, font=("Arial", 18),
-                          dropdown_font=("Arial", 17), corner_radius=10).pack(pady=(0, 20))
+        values=["40x", "80x", "200x"],
+        command=lambda _: self._update_measurement_type(),
+        width=200, height=40, font=("Arial", 18),
+        dropdown_font=("Arial", 17), corner_radius=10).pack(pady=(0, 20))
 
         # Status label
         self.status_label = ctk.CTkLabel(self.sidebar,
-                                         text="Current Mode: Rectangle Measurement (40x)",
-                                         wraplength=200, justify="center",
-                                         font=("Arial", 18), corner_radius=10)
+        text="Current Mode: Rectangle Measurement (40x)",
+        wraplength=200, justify="center",
+        font=("Arial", 18), corner_radius=10)
         self.status_label.pack(pady=(10, 20))
 
         # Variable traces
@@ -199,19 +199,19 @@ class LensQCApp:
             row = ctk.CTkFrame(self.sidebar, fg_color="transparent")
             row.pack(pady=(0, 10), padx=0, fill="x")
             ctk.CTkLabel(row, text=label_text, font=("Arial", 18),
-                         width=60, anchor="w").pack(side="left", padx=(65, 0))
+            width=60, anchor="w").pack(side="left", padx=(65, 0))
             ctk.CTkEntry(row, textvariable=var, width=140, height=40,
-                         font=("Arial", 18), corner_radius=10).pack(side="right", padx=(0, 60))
+            font=("Arial", 18), corner_radius=10).pack(side="right", padx=(0, 60))
 
         ctk.CTkButton(self.sidebar, text="Confirm Scale",
-                      command=self._update_pixel_scale_from_entry,
-                      width=200, height=40, font=("Arial", 18),
-                      corner_radius=10).pack(pady=(0, 10))
+        command=self._update_pixel_scale_from_entry,
+        width=200, height=40, font=("Arial", 18),
+        corner_radius=10).pack(pady=(0, 10))
 
         ctk.CTkButton(self.sidebar, text="Toggle Analysis Chat",
-                      command=self._toggle_chat_panel,
-                      width=200, height=40, font=("Arial", 18),
-                      corner_radius=10).pack(pady=(0, 20))
+        command=self._toggle_chat_panel,
+        width=200, height=40, font=("Arial", 18),
+        corner_radius=10).pack(pady=(0, 20))
 
         self._update_status_label()
 
@@ -235,10 +235,10 @@ class LensQCApp:
         header.pack(fill="x", padx=15, pady=(15, 5))
         ctk.CTkLabel(header, text="Analysis Assistant", font=("Arial", 18, "bold")).pack(side="left")
         ctk.CTkButton(header, text="✕", width=28, height=28, corner_radius=8,
-                      command=self._toggle_chat_panel).pack(side="right")
+        command=self._toggle_chat_panel).pack(side="right")
 
         self.chat_log = ctk.CTkTextbox(self.chat_frame, wrap="word", fg_color="white",
-                                       font=("Arial", 13), corner_radius=10, state="disabled")
+            font=("Arial", 13), corner_radius=10, state="disabled")
         self.chat_log.pack(fill="both", expand=True, padx=15, pady=(5, 10))
         self.chat_log.tag_config("user", foreground="#1f6aa5")
         self.chat_log.tag_config("assistant", foreground="#222222")
@@ -247,19 +247,19 @@ class LensQCApp:
         quick_row = ctk.CTkFrame(self.chat_frame, fg_color="transparent")
         quick_row.pack(fill="x", padx=15, pady=(0, 8))
         ctk.CTkButton(quick_row, text="Analyze current results", height=32, corner_radius=8,
-                      font=("Arial", 12), command=self._quick_analyze_results).pack(fill="x")
+            font=("Arial", 12), command=self._quick_analyze_results).pack(fill="x")
 
         input_row = ctk.CTkFrame(self.chat_frame, fg_color="transparent")
         input_row.pack(fill="x", padx=15, pady=(0, 15))
 
         self.chat_entry = ctk.CTkEntry(input_row, placeholder_text="Ask about the results...",
-                                       height=40, font=("Arial", 13), corner_radius=10)
+            height=40, font=("Arial", 13), corner_radius=10)
         self.chat_entry.pack(side="left", fill="x", expand=True, padx=(0, 8))
         self.chat_entry.bind("<Return>", lambda e: self._send_chat_message())
 
         self.chat_send_btn = ctk.CTkButton(input_row, text="Send", width=64, height=40,
-                                           corner_radius=10, font=("Arial", 13),
-                                           command=self._send_chat_message)
+            corner_radius=10, font=("Arial", 13),
+            command=self._send_chat_message)
         self.chat_send_btn.pack(side="right")
 
         if not OLLAMA_AVAILABLE:
@@ -489,7 +489,7 @@ class LensQCApp:
         # --- Auto-save annotated image ---
         if self.annotated_image is not None:
             save_results(self.annotated_image, self.results_lines,
-                         self.uploaded_image_path, mode, self.zoom_var.get())
+            self.uploaded_image_path, mode, self.zoom_var.get())
 
         self._update_preview_tab()
         self._update_annotated_tab()
@@ -510,11 +510,11 @@ class LensQCApp:
         tab_container.pack(fill="both", expand=True, padx=pad_x, pady=pad_y)
 
         self.tabs = ctk.CTkTabview(tab_container,
-                                   fg_color="#eaeaea",
-                                   segmented_button_fg_color="#e0e0e0",
-                                   segmented_button_selected_color="#3b8ed0",
-                                   segmented_button_selected_hover_color="#36719f",
-                                   height=64)
+        fg_color="#eaeaea",
+        segmented_button_fg_color="#e0e0e0",
+        segmented_button_selected_color="#3b8ed0",
+        segmented_button_selected_hover_color="#36719f",
+        height=64)
         self.tabs.pack(fill="both", expand=True, padx=pad_x, pady=pad_y)
 
         responsive_font_size = self._get_responsive_font_size(18)
@@ -550,30 +550,30 @@ class LensQCApp:
         button_frame.pack(pady=(0, 10))
 
         self.upload_tab_upload_btn = ctk.CTkButton(button_frame,
-                                                   text="Upload Image",
-                                                   command=self.upload_image,
-                                                   width=button_width,
-                                                   height=48,
-                                                   corner_radius=10,
-                                                   font=("Arial", button_font_size))
+        text="Upload Image",
+        command=self.upload_image,
+        width=button_width,
+        height=48,
+        corner_radius=10,
+        font=("Arial", button_font_size))
         self.upload_tab_upload_btn.pack(side="left", padx=(0, 10))
 
         self.upload_tab_run_detection_btn = ctk.CTkButton(button_frame,
-                                                          text="Run Detection",
-                                                          command=self.run_detection,
-                                                          width=button_width,
-                                                          height=48,
-                                                          corner_radius=10,
-                                                          font=("Arial", button_font_size))
+        text="Run Detection",
+        command=self.run_detection,
+        width=button_width,
+        height=48,
+        corner_radius=10,
+        font=("Arial", button_font_size))
         self.upload_tab_run_detection_btn.pack(side="left", padx=(10, 0))
 
         preview_frame = ctk.CTkFrame(upload_content, fg_color="#eaeaea", corner_radius=10)
         preview_frame.pack(fill="both", expand=True, padx=pad_x, pady=(10, 0))
 
         self.preview_img_label = ctk.CTkLabel(preview_frame,
-                                              text="No image uploaded",
-                                              fg_color="#eaeaea",
-                                              corner_radius=10)
+        text="No image uploaded",
+        fg_color="#eaeaea",
+        corner_radius=10)
         self.preview_img_label.pack(expand=True, fill="both", padx=10, pady=10)
 
         # Annotated Image tab
@@ -581,8 +581,8 @@ class LensQCApp:
         annotated_content = annotated_tab.winfo_children()[0]
 
         self.annotated_canvas = ctk.CTkCanvas(annotated_content,
-                                              bg="gray90",
-                                              highlightthickness=0)
+        bg="gray90",
+        highlightthickness=0)
         self.annotated_canvas.pack(fill="both", expand=True, padx=pad_x, pady=pad_y)
         self.canvas_img_id = None
 
@@ -598,10 +598,10 @@ class LensQCApp:
 
         results_font_size = self._get_responsive_font_size(14)
         self.results_textbox = ctk.CTkTextbox(results_content,
-                                              wrap="word",
-                                              fg_color="white",
-                                              font=("Arial", results_font_size),
-                                              corner_radius=10)
+        wrap="word",
+        fg_color="white",
+        font=("Arial", results_font_size),
+        corner_radius=10)
         self.results_textbox.pack(fill="both", expand=True, padx=pad_x, pady=pad_y)
         self.results_textbox.configure(state="disabled")
 
