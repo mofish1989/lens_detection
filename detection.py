@@ -90,7 +90,7 @@ def detect_rectangles(image, pixel_scale):
     # Dynamic parameters
     c_size, c_mid = 15, 10
     corners = [gray[0:c_size, 0:c_size], gray[0:c_size, -c_size:],
-               gray[-c_size:, 0:c_size], gray[-c_size:, -c_size:]]
+    gray[-c_size:, 0:c_size], gray[-c_size:, -c_size:]]
 
     # Build outer background from non-black corner pixels to avoid black-border corruption
     all_corner_px = np.concatenate([c.flatten() for c in corners])

@@ -2,6 +2,8 @@ import cv2
 import customtkinter as ctk
 from tkinter import filedialog, messagebox
 from PIL import Image, ImageTk
+import os
+import threading
 
 from constants import (
     PIXEL_SCALES,
@@ -9,6 +11,21 @@ from constants import (
 )
 from detection import detect_rectangles, detect_and_annotate_lenses, detect_defects
 from history import save_results
+
+try:
+    import ollama
+    OLLAMA_AVAILABLE = True
+except ImportError:
+    OLLAMA_AVAILABLE = False
+
+# === Chat / Analysis Assistant ===
+# Uses a local Ollama server (https://ollama.com). Install with `pip install ollama`,
+# run `ollama serve`, and pull a model first, e.g. `ollama pull llama3.1`.
+# Override the model/host via env vars if you like: OLLAMA_MODEL, OLLAMA_HOST.
+OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "gemma4:e4b")
+OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
+os.environ["OLLAMA_HOST"] = OLLAMA_HOST  # ensure ollama.chat() picks up the same host
+CHAT_PANEL_WIDTH = 340
 
 
 def _load_logo_image(path, max_w=250, max_h=140):
@@ -52,10 +69,18 @@ class LensQCApp:
         self.upload_tab_upload_btn = None
         self.upload_tab_run_detection_btn = None
         self.preview_img_label = None
-        self.preview_frame = None
 
         self._resize_after_id = None
         self._last_window_size = (0, 0)
+
+        # --- Chat / Analysis Assistant State ---
+        self.chat_visible = True
+        self.chat_messages = []  # conversation history sent to Ollama: [{"role": ..., "content": ...}]
+        self.chat_frame = None
+        self.chat_log = None
+        self.chat_entry = None
+        self.chat_send_btn = None
+        self.ollama_ready = OLLAMA_AVAILABLE
 
         # --- Build UI ---
         self._set_responsive_geometry()
@@ -64,6 +89,7 @@ class LensQCApp:
 
         self._build_sidebar()
         self._build_main_frame()
+        self._build_chat_panel()
         self._create_tabs()
         self.tabs_created = True
 
@@ -180,6 +206,11 @@ class LensQCApp:
         ctk.CTkButton(self.sidebar, text="Confirm Scale",
                       command=self._update_pixel_scale_from_entry,
                       width=200, height=40, font=("Arial", 18),
+                      corner_radius=10).pack(pady=(0, 10))
+
+        ctk.CTkButton(self.sidebar, text="Toggle Analysis Chat",
+                      command=self._toggle_chat_panel,
+                      width=200, height=40, font=("Arial", 18),
                       corner_radius=10).pack(pady=(0, 20))
 
         self._update_status_label()
@@ -192,6 +223,128 @@ class LensQCApp:
 
         self.content_frame = ctk.CTkFrame(self.main_frame, fg_color="#eaeaea")
         self.content_frame.pack(fill="both", expand=True, padx=10, pady=10)
+
+    # === Analysis Chat Panel ===
+
+    def _build_chat_panel(self):
+        self.chat_frame = ctk.CTkFrame(self.app, width=CHAT_PANEL_WIDTH, fg_color="#eaeaea", corner_radius=15)
+        self.chat_frame.pack(side="right", fill="y", padx=(0, 20), pady=20)
+        self.chat_frame.pack_propagate(False)
+
+        header = ctk.CTkFrame(self.chat_frame, fg_color="transparent")
+        header.pack(fill="x", padx=15, pady=(15, 5))
+        ctk.CTkLabel(header, text="Analysis Assistant", font=("Arial", 18, "bold")).pack(side="left")
+        ctk.CTkButton(header, text="✕", width=28, height=28, corner_radius=8,
+                      command=self._toggle_chat_panel).pack(side="right")
+
+        self.chat_log = ctk.CTkTextbox(self.chat_frame, wrap="word", fg_color="white",
+                                       font=("Arial", 13), corner_radius=10, state="disabled")
+        self.chat_log.pack(fill="both", expand=True, padx=15, pady=(5, 10))
+        self.chat_log.tag_config("user", foreground="#1f6aa5")
+        self.chat_log.tag_config("assistant", foreground="#222222")
+        self.chat_log.tag_config("system", foreground="#888888")
+
+        quick_row = ctk.CTkFrame(self.chat_frame, fg_color="transparent")
+        quick_row.pack(fill="x", padx=15, pady=(0, 8))
+        ctk.CTkButton(quick_row, text="Analyze current results", height=32, corner_radius=8,
+                      font=("Arial", 12), command=self._quick_analyze_results).pack(fill="x")
+
+        input_row = ctk.CTkFrame(self.chat_frame, fg_color="transparent")
+        input_row.pack(fill="x", padx=15, pady=(0, 15))
+
+        self.chat_entry = ctk.CTkEntry(input_row, placeholder_text="Ask about the results...",
+                                       height=40, font=("Arial", 13), corner_radius=10)
+        self.chat_entry.pack(side="left", fill="x", expand=True, padx=(0, 8))
+        self.chat_entry.bind("<Return>", lambda e: self._send_chat_message())
+
+        self.chat_send_btn = ctk.CTkButton(input_row, text="Send", width=64, height=40,
+                                           corner_radius=10, font=("Arial", 13),
+                                           command=self._send_chat_message)
+        self.chat_send_btn.pack(side="right")
+
+        if not OLLAMA_AVAILABLE:
+            self._append_chat_message("system", "The 'ollama' package isn't installed. Run: pip install ollama")
+        elif not self.ollama_ready:
+            self._append_chat_message("system", "Couldn't set up the Ollama client. Check OLLAMA_HOST.")
+        else:
+            self._append_chat_message("system",
+                f"Ask me about your QC results, tolerances, or trends. (model: {OLLAMA_MODEL} via {OLLAMA_HOST})")
+
+    def _toggle_chat_panel(self):
+        if self.chat_visible:
+            self.chat_frame.pack_forget()
+        else:
+            self.chat_frame.pack(side="right", fill="y", padx=(0, 20), pady=20)
+        self.chat_visible = not self.chat_visible
+
+    def _append_chat_message(self, role, text):
+        self.chat_log.configure(state="normal")
+        prefix = {"user": "You: ", "assistant": "Assistant: ", "system": ""}.get(role, "")
+        self.chat_log.insert("end", f"{prefix}{text}\n\n", (role,))
+        self.chat_log.configure(state="disabled")
+        self.chat_log.see("end")
+
+    def _build_results_context(self):
+        """Summarize the current mode/zoom/results so the assistant can reason about them."""
+        if not self.results_lines:
+            return "No detection has been run yet."
+        mode = self.mode_var.get()
+        zoom = self.zoom_var.get()
+        lines = "\n".join(self.results_lines)
+        return f"Mode: {mode}\nZoom: {zoom}\n\nResults:\n{lines}"
+
+    def _quick_analyze_results(self):
+        if not self.results_lines:
+            messagebox.showinfo("No results", "Run a detection first so there's something to analyze.")
+            return
+        self._send_chat_message(
+            preset="Summarize these QC results, flag anything out of tolerance, and note any patterns worth attention.")
+
+    def _send_chat_message(self, preset=None):
+        user_text = preset if preset is not None else self.chat_entry.get().strip()
+        if not user_text:
+            return
+        if not self.ollama_ready:
+            messagebox.showwarning("Assistant unavailable",
+                                   "Install the 'ollama' package (pip install ollama) and make sure "
+                                   "the Ollama server is running (ollama serve) first.")
+            return
+
+        if preset is None:
+            self.chat_entry.delete(0, "end")
+        self._append_chat_message("user", user_text)
+        self.chat_send_btn.configure(state="disabled", text="...")
+
+        self.chat_messages.append({"role": "user", "content": user_text})
+        history_copy = list(self.chat_messages)
+        context = self._build_results_context()
+
+        threading.Thread(target=self._call_chat_api, args=(history_copy, context), daemon=True).start()
+
+    def _call_chat_api(self, history, context):
+        try:
+            system_prompt = (
+                "You are a QC analysis assistant for a lens/rectangle inspection tool. "
+                "Answer questions about the measurement and defect results below. "
+                "Be concise and specific about which measurements are out of tolerance.\n\n"
+                f"Current session data:\n{context}"
+            )
+            messages = [{"role": "system", "content": system_prompt}] + history
+            response = ollama.chat(model=OLLAMA_MODEL, messages=messages)
+            reply_text = response["message"]["content"]
+        except Exception as e:
+            reply_text = (
+                f"Error contacting Ollama: {e}\n\n"
+                f"Make sure the Ollama server is running (ollama serve) and the model is pulled "
+                f"(ollama pull {OLLAMA_MODEL})."
+            )
+
+        self.app.after(0, lambda: self._handle_chat_response(reply_text))
+
+    def _handle_chat_response(self, reply_text):
+        self.chat_messages.append({"role": "assistant", "content": reply_text})
+        self._append_chat_message("assistant", reply_text)
+        self.chat_send_btn.configure(state="normal", text="Send")
 
     # === Status / Measurement Helpers ===
 
@@ -243,80 +396,40 @@ class LensQCApp:
             return
         self.uploaded_image = img
         self.uploaded_image_path = path
-        self.annotated_image = None
-        self.results_lines = []
         self.zoom_level = 1.0
-        self.offset_x = 0
-        self.offset_y = 0
         self._show_preview_image(img)
-        self._update_annotated_tab()
-        self._update_results_tab()
         if self.upload_tab_run_detection_btn:
             self.upload_tab_run_detection_btn.configure(state="normal")
 
     def _show_preview_image(self, img):
         img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         img_pil = Image.fromarray(img_rgb)
-        available_width, available_height = self._get_preview_area_size()
-        target_width, target_height = self._get_fit_size(
-            img_pil.width,
-            img_pil.height,
-            available_width,
-            available_height,
-            allow_upscale=False,
-        )
+        aspect_ratio = img_pil.width / img_pil.height
+
+        window_width = self.app.winfo_width()
+        window_height = self.app.winfo_height()
+        available_width = max(window_width - 400, 400)
+        available_height = max(window_height - 180, 500)
+
+        scale_w = (available_width * 0.95) / img_pil.width
+        scale_h = (available_height * 0.95) / img_pil.height
+        scale = min(scale_w, scale_h)
+
+        target_width = int(img_pil.width * scale)
+        target_height = int(img_pil.height * scale)
+
+        if target_width > available_width:
+            target_width = int(available_width * 0.95)
+            target_height = int(target_width / aspect_ratio)
+        if target_height > available_height:
+            target_height = int(available_height * 0.95)
+            target_width = int(target_height * aspect_ratio)
 
         img_pil = img_pil.resize((target_width, target_height), Image.LANCZOS)
         self.image_preview_tk = ctk.CTkImage(light_image=img_pil, size=(target_width, target_height))
 
         if self.preview_img_label:
             self.preview_img_label.configure(image=self.image_preview_tk, text="")
-
-    def _get_fit_size(self, image_width, image_height, available_width, available_height, allow_upscale=True):
-        safe_width = max(int(available_width), 1)
-        safe_height = max(int(available_height), 1)
-        scale = min(safe_width / image_width, safe_height / image_height)
-        if not allow_upscale:
-            scale = min(scale, 1.0)
-        target_width = max(int(image_width * scale), 1)
-        target_height = max(int(image_height * scale), 1)
-        return target_width, target_height
-
-    def _get_preview_area_size(self):
-        if self.preview_img_label and self.preview_img_label.winfo_exists():
-            self.preview_img_label.update_idletasks()
-            label_width = self.preview_img_label.winfo_width() - 20
-            label_height = self.preview_img_label.winfo_height() - 20
-            if label_width > 1 and label_height > 1:
-                return label_width, label_height
-
-        if self.preview_frame and self.preview_frame.winfo_exists():
-            self.preview_frame.update_idletasks()
-            frame_width = self.preview_frame.winfo_width() - 20
-            frame_height = self.preview_frame.winfo_height() - 20
-            if frame_width > 1 and frame_height > 1:
-                return frame_width, frame_height
-
-        window_width = self.app.winfo_width()
-        window_height = self.app.winfo_height()
-        return max(window_width - 400, 400), max(window_height - 180, 500)
-
-    def _fit_annotated_image_to_canvas(self):
-        if self.annotated_image is None or self.annotated_canvas is None:
-            return
-
-        self.annotated_canvas.update_idletasks()
-        canvas_width = self.annotated_canvas.winfo_width()
-        canvas_height = self.annotated_canvas.winfo_height()
-        if canvas_width <= 1 or canvas_height <= 1:
-            self.app.after(50, self._fit_annotated_image_to_canvas)
-            return
-
-        image_height, image_width = self.annotated_image.shape[:2]
-        fit_width, fit_height = self._get_fit_size(image_width, image_height, canvas_width, canvas_height)
-        self.zoom_level = max(min(fit_width / image_width, self.max_zoom), self.min_zoom)
-        self.offset_x = max((canvas_width - fit_width) / 2, 0)
-        self.offset_y = max((canvas_height - fit_height) / 2, 0)
 
     # === Detection ===
 
@@ -372,7 +485,6 @@ class LensQCApp:
 
         self.annotated_image = annotated
         self.results_lines = results_text
-        self._fit_annotated_image_to_canvas()
 
         # --- Auto-save annotated image ---
         if self.annotated_image is not None:
@@ -382,8 +494,6 @@ class LensQCApp:
         self._update_preview_tab()
         self._update_annotated_tab()
         self._update_results_tab()
-        if self.tabs is not None:
-            self.tabs.set("Annotated Image")
 
     # === Tabs ===
 
@@ -457,10 +567,10 @@ class LensQCApp:
                                                           font=("Arial", button_font_size))
         self.upload_tab_run_detection_btn.pack(side="left", padx=(10, 0))
 
-        self.preview_frame = ctk.CTkFrame(upload_content, fg_color="#eaeaea", corner_radius=10)
-        self.preview_frame.pack(fill="both", expand=True, padx=pad_x, pady=(10, 0))
+        preview_frame = ctk.CTkFrame(upload_content, fg_color="#eaeaea", corner_radius=10)
+        preview_frame.pack(fill="both", expand=True, padx=pad_x, pady=(10, 0))
 
-        self.preview_img_label = ctk.CTkLabel(self.preview_frame,
+        self.preview_img_label = ctk.CTkLabel(preview_frame,
                                               text="No image uploaded",
                                               fg_color="#eaeaea",
                                               corner_radius=10)
@@ -508,16 +618,10 @@ class LensQCApp:
 
     def _update_annotated_tab(self):
         if self.annotated_image is None:
-            if self.annotated_canvas is not None:
-                self.annotated_canvas.delete("all")
-                self.annotated_canvas.image = None
             return
         img_rgb = cv2.cvtColor(self.annotated_image, cv2.COLOR_BGR2RGB)
         img_pil = Image.fromarray(img_rgb)
-        new_size = (
-            max(int(img_pil.width * self.zoom_level), 1),
-            max(int(img_pil.height * self.zoom_level), 1),
-        )
+        new_size = (int(img_pil.width * self.zoom_level), int(img_pil.height * self.zoom_level))
         resized_img = img_pil.resize(new_size, Image.LANCZOS)
         self.annotated_image_tk = ctk.CTkImage(light_image=resized_img, size=new_size)
         self.annotated_canvas.delete("all")
