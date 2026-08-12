@@ -1,6 +1,6 @@
 # Lens Quality Check — User Manual
 
-This guide walks you through installing and using the Lens Quality Check application from scratch. No programming experience is required.
+This guide walks you through installing and using the Lens Quality Check application from scratch.
 
 ---
 
