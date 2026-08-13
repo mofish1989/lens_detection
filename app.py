@@ -24,7 +24,7 @@ except ImportError:
 # Override the model/host via env vars if you like: OLLAMA_MODEL, OLLAMA_HOST.
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "gemma4:e4b")
 OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
-os.environ["OLLAMA_HOST"] = OLLAMA_HOST  # ensure ollama.chat() picks up the same host
+os.environ["OLLAMA_HOST"] = OLLAMA_HOST
 CHAT_PANEL_WIDTH = 340
 
 
@@ -80,7 +80,12 @@ class LensQCApp:
         self.chat_log = None
         self.chat_entry = None
         self.chat_send_btn = None
+        self.chat_header_label = None
+        self.chat_close_btn = None
+        self.chat_quick_btn = None
         self.ollama_ready = OLLAMA_AVAILABLE
+        self._typing_anim_id = None
+        self._typing_dots = 0
 
         # --- Build UI ---
         self._set_responsive_geometry()
@@ -225,40 +230,53 @@ class LensQCApp:
         self.content_frame.pack(fill="both", expand=True, padx=10, pady=10)
 
     # === Analysis Chat Panel ===
+    # Typography here follows the same hierarchy as the rest of the app:
+    # headers/buttons/inputs use the 18pt responsive scale (same as sidebar
+    # controls and tab headers), while body/log text uses the 14pt scale
+    # (same as the Results tab textbox).
 
     def _build_chat_panel(self):
         self.chat_frame = ctk.CTkFrame(self.app, width=CHAT_PANEL_WIDTH, fg_color="#eaeaea", corner_radius=15)
         self.chat_frame.pack(side="right", fill="y", padx=(0, 20), pady=20)
         self.chat_frame.pack_propagate(False)
 
+        header_font = ("Arial", self._get_responsive_font_size(18), "bold")
+        control_font = ("Arial", self._get_responsive_font_size(16))
+        body_font = ("Arial", self._get_responsive_font_size(14))
+
         header = ctk.CTkFrame(self.chat_frame, fg_color="transparent")
         header.pack(fill="x", padx=15, pady=(15, 5))
-        ctk.CTkLabel(header, text="Analysis Assistant", font=("Arial", 18, "bold")).pack(side="left")
-        ctk.CTkButton(header, text="✕", width=28, height=28, corner_radius=8,
-        command=self._toggle_chat_panel).pack(side="right")
+        self.chat_header_label = ctk.CTkLabel(header, text="Analysis Assistant", font=header_font)
+        self.chat_header_label.pack(side="left")
+        self.chat_close_btn = ctk.CTkButton(header, text="✕", width=28, height=28, corner_radius=8,
+        font=control_font,
+        command=self._toggle_chat_panel)
+        self.chat_close_btn.pack(side="right")
 
         self.chat_log = ctk.CTkTextbox(self.chat_frame, wrap="word", fg_color="white",
-            font=("Arial", 13), corner_radius=10, state="disabled")
+            font=body_font, corner_radius=10, state="disabled")
         self.chat_log.pack(fill="both", expand=True, padx=15, pady=(5, 10))
         self.chat_log.tag_config("user", foreground="#1f6aa5")
         self.chat_log.tag_config("assistant", foreground="#222222")
         self.chat_log.tag_config("system", foreground="#888888")
+        self.chat_log.tag_config("typing", foreground="#999999")
 
         quick_row = ctk.CTkFrame(self.chat_frame, fg_color="transparent")
         quick_row.pack(fill="x", padx=15, pady=(0, 8))
-        ctk.CTkButton(quick_row, text="Analyze current results", height=32, corner_radius=8,
-            font=("Arial", 12), command=self._quick_analyze_results).pack(fill="x")
+        self.chat_quick_btn = ctk.CTkButton(quick_row, text="Analyze current results", height=40, corner_radius=10,
+            font=control_font, command=self._quick_analyze_results)
+        self.chat_quick_btn.pack(fill="x")
 
         input_row = ctk.CTkFrame(self.chat_frame, fg_color="transparent")
         input_row.pack(fill="x", padx=15, pady=(0, 15))
 
         self.chat_entry = ctk.CTkEntry(input_row, placeholder_text="Ask about the results...",
-            height=40, font=("Arial", 13), corner_radius=10)
+            height=40, font=control_font, corner_radius=10)
         self.chat_entry.pack(side="left", fill="x", expand=True, padx=(0, 8))
         self.chat_entry.bind("<Return>", lambda e: self._send_chat_message())
 
         self.chat_send_btn = ctk.CTkButton(input_row, text="Send", width=64, height=40,
-            corner_radius=10, font=("Arial", 13),
+            corner_radius=10, font=control_font,
             command=self._send_chat_message)
         self.chat_send_btn.pack(side="right")
 
@@ -276,6 +294,7 @@ class LensQCApp:
         else:
             self.chat_frame.pack(side="right", fill="y", padx=(0, 20), pady=20)
         self.chat_visible = not self.chat_visible
+        self.app.after(50, self._fit_annotated_to_canvas)
 
     def _append_chat_message(self, role, text):
         self.chat_log.configure(state="normal")
@@ -300,6 +319,45 @@ class LensQCApp:
         self._send_chat_message(
             preset="Summarize these QC results, flag anything out of tolerance, and note any patterns worth attention.")
 
+    # --- Typing indicator ---
+    # Uses a text *tag* rather than a cached text index. Cached indices like
+    # "end-1c" can become stale as other edits happen around them; a tag's
+    # range always reflects exactly the text currently carrying that tag, so
+    # repeated delete/insert cycles can't drift or duplicate.
+
+    def _start_typing_indicator(self):
+        self.chat_log.configure(state="normal")
+        self.chat_log.insert("end", "Assistant is typing", ("typing",))
+        self.chat_log.configure(state="disabled")
+        self.chat_log.see("end")
+        self._typing_dots = 0
+        self._typing_anim_id = self.app.after(450, self._animate_typing_indicator)
+
+    def _animate_typing_indicator(self):
+        ranges = self.chat_log.tag_ranges("typing")
+        if not ranges:
+            self._typing_anim_id = None
+            return
+        start, end = ranges[0], ranges[1]
+        self._typing_dots = (self._typing_dots + 1) % 4
+        dots = "." * self._typing_dots
+        self.chat_log.configure(state="normal")
+        self.chat_log.delete(start, end)
+        self.chat_log.insert(start, f"Assistant is typing{dots}", ("typing",))
+        self.chat_log.configure(state="disabled")
+        self.chat_log.see("end")
+        self._typing_anim_id = self.app.after(450, self._animate_typing_indicator)
+
+    def _stop_typing_indicator(self):
+        if self._typing_anim_id is not None:
+            self.app.after_cancel(self._typing_anim_id)
+            self._typing_anim_id = None
+        ranges = self.chat_log.tag_ranges("typing")
+        if ranges:
+            self.chat_log.configure(state="normal")
+            self.chat_log.delete(ranges[0], ranges[1])
+            self.chat_log.configure(state="disabled")
+
     def _send_chat_message(self, preset=None):
         user_text = preset if preset is not None else self.chat_entry.get().strip()
         if not user_text:
@@ -314,6 +372,7 @@ class LensQCApp:
             self.chat_entry.delete(0, "end")
         self._append_chat_message("user", user_text)
         self.chat_send_btn.configure(state="disabled", text="...")
+        self._start_typing_indicator()
 
         self.chat_messages.append({"role": "user", "content": user_text})
         history_copy = list(self.chat_messages)
@@ -342,6 +401,7 @@ class LensQCApp:
         self.app.after(0, lambda: self._handle_chat_response(reply_text))
 
     def _handle_chat_response(self, reply_text):
+        self._stop_typing_indicator()
         self.chat_messages.append({"role": "assistant", "content": reply_text})
         self._append_chat_message("assistant", reply_text)
         self.chat_send_btn.configure(state="normal", text="Send")
@@ -383,6 +443,19 @@ class LensQCApp:
     def _update_header_font(self):
         font_size = self._get_responsive_font_size(26)
         self.project_label.configure(font=("Arial", font_size, "bold"))
+
+    def _update_chat_fonts(self):
+        if self.chat_header_label is None:
+            return
+        header_font = ("Arial", self._get_responsive_font_size(18), "bold")
+        control_font = ("Arial", self._get_responsive_font_size(16))
+        body_font = ("Arial", self._get_responsive_font_size(14))
+        self.chat_header_label.configure(font=header_font)
+        self.chat_close_btn.configure(font=control_font)
+        self.chat_log.configure(font=body_font)
+        self.chat_quick_btn.configure(font=control_font)
+        self.chat_entry.configure(font=control_font)
+        self.chat_send_btn.configure(font=control_font)
 
     # === Upload & Preview ===
 
@@ -492,8 +565,11 @@ class LensQCApp:
             self.uploaded_image_path, mode, self.zoom_var.get())
 
         self._update_preview_tab()
-        self._update_annotated_tab()
+        self._fit_annotated_to_canvas()
         self._update_results_tab()
+
+        if self.tabs is not None:
+            self.tabs.set("Annotated Image")
 
     # === Tabs ===
 
@@ -616,6 +692,23 @@ class LensQCApp:
             return
         self._show_preview_image(self.uploaded_image)
 
+    def _fit_annotated_to_canvas(self):
+        """Auto-scale + center the annotated image so it fully fits the canvas."""
+        if self.annotated_image is None or self.annotated_canvas is None:
+            return
+        self.app.update_idletasks()
+        canvas_width = self.annotated_canvas.winfo_width()
+        canvas_height = self.annotated_canvas.winfo_height()
+        if canvas_width <= 1 or canvas_height <= 1:
+            return
+        img_h, img_w = self.annotated_image.shape[:2]
+        scale = min(canvas_width / img_w, canvas_height / img_h)
+        scale = max(min(scale, self.max_zoom), self.min_zoom)
+        self.zoom_level = scale
+        self.offset_x = (canvas_width - img_w * scale) / 2
+        self.offset_y = (canvas_height - img_h * scale) / 2
+        self._update_annotated_tab()
+
     def _update_annotated_tab(self):
         if self.annotated_image is None:
             return
@@ -660,6 +753,8 @@ class LensQCApp:
             results_font_size = self._get_responsive_font_size(14)
             self.results_textbox.configure(font=("Arial", results_font_size))
 
+        self._update_chat_fonts()
+
         if self.uploaded_image is not None:
             self._show_preview_image(self.uploaded_image)
 
@@ -678,6 +773,7 @@ class LensQCApp:
         self._resize_after_id = None
         self.sidebar.configure(width=self._get_responsive_sidebar_width())
         self._refresh_responsive_elements()
+        self._fit_annotated_to_canvas()
 
     # === Zoom & Pan ===
 
